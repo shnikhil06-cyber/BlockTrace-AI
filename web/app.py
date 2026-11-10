@@ -1075,12 +1075,19 @@ elif nav_choice == "🌐 Global Threat Intelligence":
     # ── ASN Cluster Table ──────────────────────────────────────────────────────
     st.markdown("#### 🌐 ASN / Network Cluster Analysis")
     clusterer = NetworkClusterer()
-    clusters = clusterer.cluster_by_asn(df_net) if not df_net.empty else {}
+    # cluster_by_asn() needs the correlated+scored DataFrame (has 'network_correlated', 'earliest_asn')
+    clusters = clusterer.cluster_by_asn(scored_df) if not scored_df.empty else []
     if clusters:
         asn_rows = []
-        for asn, ips in clusters.items():
-            asn_rows.append({"ASN": asn, "Unique IPs": len(ips), "Sample IPs": ", ".join(list(ips)[:4])})
-        asn_df = pd.DataFrame(asn_rows).sort_values("Unique IPs", ascending=False).head(20)
+        for c in clusters:
+            asn_rows.append({
+                "ASN": c["cluster_key"],
+                "Tx Count": c["tx_count"],
+                "Unique IPs": c["unique_ips"],
+                "Total BTC": f"{c['total_amount_btc']:.4f}",
+                "Countries": ", ".join(c["countries"][:4]),
+            })
+        asn_df = pd.DataFrame(asn_rows)
         st.dataframe(asn_df, use_container_width=True)
     else:
         st.info("No ASN clustering data available.")
