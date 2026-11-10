@@ -38,6 +38,17 @@ from blocktrace.ml import (
 from blocktrace.graph import ForensicGraphBuilder, GraphAnalyzer, GraphVisualizer
 from blocktrace.forensic_case import ForensicCaseManager, ForensicReportExporter
 from web.components.styles import get_custom_css
+from blocktrace.analytics import (
+    build_wallet_risk_profiles,
+    build_temporal_heatmap,
+    build_radar_comparison,
+    build_geo_broadcast_map,
+    build_comparison_chart,
+    build_fee_distribution_chart,
+    build_pattern_sunburst,
+    build_propagation_scatter,
+    build_sankey_flow,
+)
 
 # Page Configuration
 st.set_page_config(
@@ -130,6 +141,9 @@ with st.sidebar:
             "🔗 Correlation Engine",
             "🧠 AI Anomaly & SHAP (XAI)",
             "🕸️ Interactive Graph Forensics",
+            "📊 Deep Analytics Dashboard",
+            "🌐 Global Threat Intelligence",
+            "🔀 Transaction Comparison",
             "📋 Case Dossier & Export",
             "🎯 Live Pitch Demo Walkthrough",
         ],
@@ -923,4 +937,257 @@ elif nav_choice == "🎯 Live Pitch Demo Walkthrough":
             st.success("✅ 100% Local Offline Processing — Zero Cloud Telemetry Leakage.")
             st.info("Head to the '📋 Case Dossier & Export' tab to download the complete HTML, Markdown, or JSON audit package!")
 
+
+# -----------------------------------------------------------------------------
+# TAB 8: DEEP ANALYTICS DASHBOARD
+# -----------------------------------------------------------------------------
+elif nav_choice == "📊 Deep Analytics Dashboard":
+    st.title("📊 Deep Analytics Dashboard")
+    st.markdown("Advanced multi-dimensional forensic intelligence visualizations derived from the AI-scored transaction set.")
+
+    # ── Temporal Heatmap ──────────────────────────────────────────────────────
+    st.markdown("#### 🕐 Transaction Temporal Activity by Risk Tier")
+    fig_heat = build_temporal_heatmap(scored_df)
+    if fig_heat:
+        st.plotly_chart(fig_heat, use_container_width=True)
+    else:
+        st.info("Timestamp data not available for heatmap.")
+
+    st.markdown("---")
+
+    # ── Radar + Fee Distribution (side by side) ───────────────────────────────
+    r1, r2 = st.columns(2)
+    with r1:
+        st.markdown("#### 🕸️ Behavioral Fingerprint Radar")
+        fig_radar = build_radar_comparison(scored_df)
+        if fig_radar:
+            st.plotly_chart(fig_radar, use_container_width=True)
+        else:
+            st.info("Need both CRITICAL/HIGH and NORMAL tier transactions for radar chart.")
+    with r2:
+        st.markdown("#### 💰 Fee Rate Distribution: Suspicious vs Normal")
+        fig_fee = build_fee_distribution_chart(scored_df)
+        if fig_fee:
+            st.plotly_chart(fig_fee, use_container_width=True)
+
+    st.markdown("---")
+
+    # ── Propagation Scatter ───────────────────────────────────────────────────
+    st.markdown("#### 📡 P2P Propagation Speed vs Forensic Risk Score")
+    fig_prop = build_propagation_scatter(scored_df)
+    if fig_prop:
+        st.plotly_chart(fig_prop, use_container_width=True)
+    else:
+        st.info("No network-correlated transactions available.")
+
+    st.markdown("---")
+
+    # ── Sunburst ──────────────────────────────────────────────────────────────
+    st.markdown("#### 🌸 Attack Pattern Signature Distribution (Sunburst)")
+    fig_sun = build_pattern_sunburst(scored_df)
+    if fig_sun:
+        st.plotly_chart(fig_sun, use_container_width=True)
+
+    st.markdown("---")
+
+    # ── Sankey Flow ───────────────────────────────────────────────────────────
+    st.markdown("#### 🔀 Bitcoin Flow Sankey: Sender → Transaction → Receiver")
+    max_sankey = st.slider("Max transactions in Sankey", min_value=5, max_value=30, value=12, step=1)
+    fig_sankey = build_sankey_flow(scored_df, max_txs=max_sankey)
+    if fig_sankey:
+        st.plotly_chart(fig_sankey, use_container_width=True)
+    else:
+        st.info("No address data available for Sankey flow.")
+
+
+# -----------------------------------------------------------------------------
+# TAB 9: GLOBAL THREAT INTELLIGENCE
+# -----------------------------------------------------------------------------
+elif nav_choice == "🌐 Global Threat Intelligence":
+    st.title("🌐 Global Threat Intelligence")
+    st.markdown("Geographic and behavioral profiling of Bitcoin broadcast origins and high-risk wallet addresses.")
+
+    # ── Geo Map ───────────────────────────────────────────────────────────────
+    st.markdown("#### 🗺️ P2P Broadcast Origin World Map")
+    df_net = st.session_state.df_net
+    fig_geo = build_geo_broadcast_map(scored_df, df_net)
+    if fig_geo:
+        st.plotly_chart(fig_geo, use_container_width=True)
+    else:
+        st.info("No country-level broadcast data found. Run a correlated scenario with network logs.")
+
+    st.markdown("---")
+
+    # ── Wallet Risk Profiles ──────────────────────────────────────────────────
+    st.markdown("#### 🏦 Wallet / Address Risk Profiles")
+    wallet_df = build_wallet_risk_profiles(scored_df)
+
+    if not wallet_df.empty:
+        g1, g2 = st.columns([2, 1])
+        with g1:
+            top_n = st.slider("Show top N wallets by max risk score", min_value=10, max_value=min(200, len(wallet_df)), value=30)
+        with g2:
+            tier_filter = st.multiselect(
+                "Filter by dominant tier",
+                ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NORMAL"],
+                default=["CRITICAL", "HIGH"],
+            )
+
+        display_df = wallet_df.copy()
+        if tier_filter:
+            display_df = display_df[display_df["dominant_tier"].isin(tier_filter)]
+        display_df = display_df.head(top_n)
+
+        # Color-code by dominant tier
+        tier_color_map_st = {
+            "CRITICAL": "background-color: rgba(239,68,68,0.15)",
+            "HIGH": "background-color: rgba(249,115,22,0.15)",
+            "MEDIUM": "background-color: rgba(245,158,11,0.10)",
+            "LOW": "background-color: rgba(59,130,246,0.10)",
+            "NORMAL": "background-color: rgba(16,185,129,0.08)",
+        }
+
+        def _style_tier_row(row):
+            style = tier_color_map_st.get(row["dominant_tier"], "")
+            return [style] * len(row)
+
+        styled = display_df.style.apply(_style_tier_row, axis=1).format({
+            "max_risk_score": "{:.1f}",
+            "mean_risk_score": "{:.1f}",
+            "total_btc": "{:.4f}",
+        })
+
+        st.dataframe(styled, use_container_width=True)
+
+        # CSV Download
+        csv_bytes = display_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Download Wallet Profiles as CSV",
+            data=csv_bytes,
+            file_name="blocktrace_wallet_risk_profiles.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No address-level data found in the current scored dataset.")
+
+    st.markdown("---")
+
+    # ── ASN Cluster Table ──────────────────────────────────────────────────────
+    st.markdown("#### 🌐 ASN / Network Cluster Analysis")
+    clusterer = NetworkClusterer()
+    clusters = clusterer.cluster_by_asn(df_net) if not df_net.empty else {}
+    if clusters:
+        asn_rows = []
+        for asn, ips in clusters.items():
+            asn_rows.append({"ASN": asn, "Unique IPs": len(ips), "Sample IPs": ", ".join(list(ips)[:4])})
+        asn_df = pd.DataFrame(asn_rows).sort_values("Unique IPs", ascending=False).head(20)
+        st.dataframe(asn_df, use_container_width=True)
+    else:
+        st.info("No ASN clustering data available.")
+
+
+# -----------------------------------------------------------------------------
+# TAB 10: TRANSACTION COMPARISON
+# -----------------------------------------------------------------------------
+elif nav_choice == "🔀 Transaction Comparison":
+    st.title("🔀 Transaction Feature Comparison")
+    st.markdown("Select any two transactions to perform a side-by-side forensic feature comparison.")
+
+    all_tx_ids = scored_df["tx_id"].tolist()
+
+    if len(all_tx_ids) < 2:
+        st.warning("Need at least 2 transactions in the dataset to compare.")
+    else:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            default_a = all_tx_ids[0]
+            tx_id_a = st.selectbox("🔵 Transaction A", all_tx_ids, index=0, key="cmp_tx_a")
+        with col_b:
+            default_b = all_tx_ids[1] if all_tx_ids[1] != tx_id_a else all_tx_ids[2] if len(all_tx_ids) > 2 else all_tx_ids[0]
+            tx_b_options = [t for t in all_tx_ids if t != tx_id_a]
+            tx_id_b = st.selectbox("🟠 Transaction B", tx_b_options, index=0, key="cmp_tx_b")
+
+        row_a = scored_df[scored_df["tx_id"] == tx_id_a].iloc[0]
+        row_b = scored_df[scored_df["tx_id"] == tx_id_b].iloc[0]
+
+        # Metric summaries
+        m1, m2, m3, m4 = st.columns(4)
+        tier_badge = {
+            "CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵", "NORMAL": "🟢"
+        }
+        with m1:
+            st.metric("TX A — Risk Score", f"{row_a['anomaly_score']:.1f}", delta=None)
+            st.caption(f"{tier_badge.get(row_a['risk_tier'], '')} {row_a['risk_tier']}")
+        with m2:
+            st.metric("TX A — Pattern", row_a["forensic_pattern"].replace("_", " "))
+        with m3:
+            st.metric("TX B — Risk Score", f"{row_b['anomaly_score']:.1f}", delta=None)
+            st.caption(f"{tier_badge.get(row_b['risk_tier'], '')} {row_b['risk_tier']}")
+        with m4:
+            st.metric("TX B — Pattern", row_b["forensic_pattern"].replace("_", " "))
+
+        st.markdown("---")
+
+        # Feature comparison chart
+        fig_cmp = build_comparison_chart(tx_id_a, tx_id_b, scored_df, results["X"], exp_dict)
+        if fig_cmp:
+            st.plotly_chart(fig_cmp, use_container_width=True)
+
+        st.markdown("---")
+
+        # Side-by-side narrative explanations
+        n1, n2 = st.columns(2)
+        exp_a = exp_dict.get(tx_id_a)
+        exp_b = exp_dict.get(tx_id_b)
+
+        with n1:
+            st.markdown(f"##### 🔵 TX A Forensic Narrative")
+            if exp_a:
+                st.markdown(
+                    f"""<div class="forensic-narrative">{exp_a['summary_text']}</div>""",
+                    unsafe_allow_html=True,
+                )
+                with st.expander("Top SHAP Feature Drivers (TX A)"):
+                    for feat, shap_val in exp_a["top_features"][:6]:
+                        bar_pct = int(min(abs(shap_val) * 100, 100))
+                        color = "#ef4444" if shap_val > 0 else "#10b981"
+                        st.markdown(
+                            f"<div style='margin-bottom:4px'><span style='color:#94a3b8;font-size:12px'>{feat}</span>"
+                            f"<div style='background:{color};width:{bar_pct}%;height:6px;border-radius:3px;margin-top:2px'></div></div>",
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.info("No SHAP explanation available for TX A.")
+
+        with n2:
+            st.markdown(f"##### 🟠 TX B Forensic Narrative")
+            if exp_b:
+                st.markdown(
+                    f"""<div class="forensic-narrative">{exp_b['summary_text']}</div>""",
+                    unsafe_allow_html=True,
+                )
+                with st.expander("Top SHAP Feature Drivers (TX B)"):
+                    for feat, shap_val in exp_b["top_features"][:6]:
+                        bar_pct = int(min(abs(shap_val) * 100, 100))
+                        color = "#ef4444" if shap_val > 0 else "#10b981"
+                        st.markdown(
+                            f"<div style='margin-bottom:4px'><span style='color:#94a3b8;font-size:12px'>{feat}</span>"
+                            f"<div style='background:{color};width:{bar_pct}%;height:6px;border-radius:3px;margin-top:2px'></div></div>",
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.info("No SHAP explanation available for TX B.")
+
+        # Additional raw metrics side-by-side
+        st.markdown("---")
+        st.markdown("##### 📐 Raw Feature Comparison")
+        raw_cols = ["amount_btc", "fee_rate_sat_vb", "input_count", "output_count",
+                    "observed_node_count", "propagation_spread_ms", "is_tor_proxy",
+                    "is_bulletproof", "earliest_ip", "earliest_country"]
+        raw_rows = []
+        for col in raw_cols:
+            va = row_a.get(col, "N/A")
+            vb = row_b.get(col, "N/A")
+            raw_rows.append({"Feature": col.replace("_", " ").title(), "TX A": va, "TX B": vb})
+        st.dataframe(pd.DataFrame(raw_rows), use_container_width=True)
 

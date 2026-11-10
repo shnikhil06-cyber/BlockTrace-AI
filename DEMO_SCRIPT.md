@@ -74,3 +74,4 @@
 
 ### Q3: *"Can this run on real Bitcoin nodes?"*
 > **Answer**: *"Yes! Our CSV and JSON parsers accept standard exports from Bitcoin Core debug logs (`debug.log`), P2P mempool dumps, and standard blockchain explorers. It runs completely air-gapped without needing live internet access."*
+
