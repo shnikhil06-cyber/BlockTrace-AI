@@ -1,0 +1,785 @@
+"""
+BlockTrace-AI: Main Streamlit Forensic Investigation Dashboard.
+Offline Bitcoin Forensic Analysis Correlating Blockchain Records with Network Logs
+using NetworkX Graph Analysis, Isolation Forest, and SHAP Explainability.
+"""
+
+import os
+import io
+import json
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit.components.v1 as components
+
+from blocktrace.ingestion import (
+    parse_transactions,
+    parse_network_logs,
+    validate_forensic_data,
+    generate_scenario_data,
+    save_synthetic_data_to_disk,
+)
+from blocktrace.correlation import CorrelationEngine, OriginTracer, NetworkClusterer
+from blocktrace.ml import (
+    extract_forensic_features,
+    AnomalyDetector,
+    ForensicExplainer,
+    FEATURE_LABELS,
+)
+from blocktrace.graph import ForensicGraphBuilder, GraphAnalyzer, GraphVisualizer
+from blocktrace.forensic_case import ForensicCaseManager, ForensicReportExporter
+from web.components.styles import get_custom_css
+
+# Page Configuration
+st.set_page_config(
+    page_title="BlockTrace-AI | Bitcoin Forensic Platform",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Apply Dark Cyber Forensics Styling
+st.markdown(get_custom_css(), unsafe_allow_html=True)
+
+
+# Initialize Session State
+def init_session_state():
+    if "case_manager" not in st.session_state:
+        st.session_state.case_manager = ForensicCaseManager(
+            case_id="BT-2026-CASE-081",
+            case_title="Bitcoin Laundering & Network Telemetry Investigation",
+            investigator="Nikhil Sharma / Tech Titans",
+            organization="NST-RU Forensic Research Lab"
+        )
+    if "df_tx" not in st.session_state or "df_net" not in st.session_state:
+        # Load default combined scenario on startup
+        df_tx, df_net = generate_scenario_data("all", n_normal=80, seed=42)
+        st.session_state.df_tx = df_tx
+        st.session_state.df_net = df_net
+        st.session_state.dataset_source = "Built-in Combined Forensic Benchmark (100+ Txs)"
+    if "processed" not in st.session_state:
+        st.session_state.processed = False
+
+
+init_session_state()
+
+
+# Core Processing Pipeline (Cached)
+def process_data(df_tx, df_net, contamination=0.08, n_estimators=150):
+    correlator = CorrelationEngine()
+    df_corr = correlator.correlate(df_tx, df_net)
+    summary = correlator.compute_summary(df_corr, df_net)
+
+    X, meta = extract_forensic_features(df_corr)
+    detector = AnomalyDetector(contamination=contamination, n_estimators=n_estimators, random_state=42)
+    scored_df = detector.fit_predict(X, meta)
+
+    explainer = ForensicExplainer(detector.model, list(X.columns))
+    explanations = explainer.explain_dataset(X, scored_df)
+    exp_dict = {e["tx_id"]: e for e in explanations}
+
+    builder = ForensicGraphBuilder()
+    G = builder.build_graph(scored_df, df_net, max_txs=120)
+
+    analyzer = GraphAnalyzer()
+    graph_metrics = analyzer.compute_metrics(G)
+
+    return {
+        "df_corr": df_corr,
+        "summary": summary,
+        "X": X,
+        "detector": detector,
+        "scored_df": scored_df,
+        "explainer": explainer,
+        "explanations": explanations,
+        "exp_dict": exp_dict,
+        "G": G,
+        "graph_metrics": graph_metrics,
+        "correlator": correlator,
+        "analyzer": analyzer,
+    }
+
+
+# Sidebar Navigation & System Telemetry
+with st.sidebar:
+    st.markdown("### 🛡️ **BlockTrace-AI**")
+    st.markdown(
+        """
+        <div style="margin-bottom: 12px;">
+            <span class="badge-airgap">🔒 OFFLINE AIR-GAPPED [SECURE]</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("Team **Tech Titans** • NST-RU Hackathon")
+
+    nav_choice = st.radio(
+        "Investigation Module",
+        [
+            "🛰️ Telemetry & Mission Control",
+            "📂 Data Ingestion & Quality",
+            "🔗 Correlation Engine",
+            "🧠 AI Anomaly & SHAP (XAI)",
+            "🕸️ Interactive Graph Forensics",
+            "📋 Case Dossier & Export",
+        ],
+        index=0,
+    )
+
+    st.markdown("---")
+    st.markdown("#### ⚙️ AI Model Parameters")
+    contamination_slider = st.slider(
+        "Contamination Rate (Anomaly Ratio)",
+        min_value=0.01,
+        max_value=0.30,
+        value=0.08,
+        step=0.01,
+        help="Expected proportion of outliers in the dataset for Isolation Forest",
+    )
+    n_trees_slider = st.slider(
+        "Isolation Forest Trees",
+        min_value=50,
+        max_value=300,
+        value=150,
+        step=25,
+    )
+
+    st.markdown("---")
+    st.caption("Current Dataset:")
+    st.info(f"📄 {st.session_state.dataset_source}")
+
+
+# Execute Pipeline
+results = process_data(
+    st.session_state.df_tx,
+    st.session_state.df_net,
+    contamination=contamination_slider,
+    n_estimators=n_trees_slider,
+)
+
+scored_df = results["scored_df"]
+summary = results["summary"]
+exp_dict = results["exp_dict"]
+G = results["G"]
+G_metrics = results["graph_metrics"]
+analyzer = results["analyzer"]
+
+
+# -----------------------------------------------------------------------------
+# TAB 1: TELEMETRY & MISSION CONTROL
+# -----------------------------------------------------------------------------
+if nav_choice == "🛰️ Telemetry & Mission Control":
+    st.title("🛰️ Telemetry & Mission Control")
+    st.markdown("Real-time forensic telemetry across correlated Bitcoin transactions and peer-to-peer network observations.")
+
+    # KPI Top Bar
+    c1, c2, c3, c4, c5 = st.columns(5)
+    crit_count = int((scored_df["risk_tier"] == "CRITICAL").sum())
+    high_count = int((scored_df["risk_tier"] == "HIGH").sum())
+    susp_vol = float(scored_df[scored_df["risk_tier"].isin(["CRITICAL", "HIGH"])]["amount_btc"].sum())
+
+    with c1:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Analyzed Transactions</div>
+                <div class="metric-value">{summary.total_txs:,}</div>
+                <div class="metric-sub">{summary.total_network_logs:,} P2P network logs</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Network Correlated</div>
+                <div class="metric-value">{summary.correlation_rate_pct:.1f}%</div>
+                <div class="metric-sub">{summary.matched_txs} of {summary.total_txs} matched</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Critical Alerts</div>
+                <div class="metric-value" style="color:#ef4444;">{crit_count}</div>
+                <div class="metric-sub">Score ≥ 80.0 / 100</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">High-Risk BTC Volume</div>
+                <div class="metric-value" style="color:#f59e0b;">{susp_vol:.2f} ₿</div>
+                <div class="metric-sub">Flagged UTXO principal</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c5:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Tor / Proxy Relays</div>
+                <div class="metric-value" style="color:#ec4899;">{summary.tor_proxy_broadcasts}</div>
+                <div class="metric-sub">{summary.bulletproof_broadcasts} bulletproof ASNs</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 1-Click Scenario Quick Switcher
+    st.subheader("⚡ 1-Click Forensic Benchmark Scenarios")
+    sc_col1, sc_col2, sc_col3, sc_col4, sc_col5 = st.columns(5)
+
+    with sc_col1:
+        if st.button("🌀 Peeling Chain Laundering", use_container_width=True):
+            s_tx, s_net = generate_scenario_data("peeling_chain", n_normal=20, seed=101)
+            st.session_state.df_tx = s_tx
+            st.session_state.df_net = s_net
+            st.session_state.dataset_source = "Peeling Chain Laundering Scenario (45 BTC Vault Heist)"
+            st.rerun()
+
+    with sc_col2:
+        if st.button("🌪️ CoinJoin Mixer Cluster", use_container_width=True):
+            s_tx, s_net = generate_scenario_data("mixer_tumbler", n_normal=20, seed=102)
+            st.session_state.df_tx = s_tx
+            st.session_state.df_net = s_net
+            st.session_state.dataset_source = "CoinJoin / Wasabi Mixer Obfuscation Cluster"
+            st.rerun()
+
+    with sc_col3:
+        if st.button("💥 Ransomware Fan-Out", use_container_width=True):
+            s_tx, s_net = generate_scenario_data("ransomware_fanout", n_normal=20, seed=103)
+            st.session_state.df_tx = s_tx
+            st.session_state.df_net = s_net
+            st.session_state.dataset_source = "Ransomware Extortion Rapid Fan-Out Payout"
+            st.rerun()
+
+    with sc_col4:
+        if st.button("🌐 Full Multi-Scenario Suite", use_container_width=True):
+            s_tx, s_net = generate_scenario_data("all", n_normal=80, seed=42)
+            st.session_state.df_tx = s_tx
+            st.session_state.df_net = s_net
+            st.session_state.dataset_source = "Full Multi-Attack Forensic Benchmark (110+ Txs)"
+            st.rerun()
+
+    with sc_col5:
+        if st.button("🌱 Baseline Normal Traffic", use_container_width=True):
+            s_tx, s_net = generate_scenario_data("baseline_normal", n_normal=60, seed=999)
+            st.session_state.df_tx = s_tx
+            st.session_state.df_net = s_net
+            st.session_state.dataset_source = "Benign Baseline Traffic (Retail & Standard Wallets)"
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Charts: Risk Tier Distribution & Anomaly Score Spread
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.subheader("📊 Risk Tier Breakdown")
+        tier_counts = scored_df["risk_tier"].value_counts().reset_index()
+        tier_counts.columns = ["Risk Tier", "Count"]
+        color_map = {
+            "CRITICAL": "#ef4444",
+            "HIGH": "#f97316",
+            "MEDIUM": "#f59e0b",
+            "LOW": "#3b82f6",
+            "NORMAL": "#10b981",
+        }
+        fig_pie = px.pie(
+            tier_counts,
+            names="Risk Tier",
+            values="Count",
+            color="Risk Tier",
+            color_discrete_map=color_map,
+            hole=0.45,
+        )
+        fig_pie.update_layout(
+            paper_bgcolor="#0b0f19",
+            plot_bgcolor="#0b0f19",
+            font_color="#f8fafc",
+            margin=dict(t=20, b=20, l=20, r=20),
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with chart_col2:
+        st.subheader("📈 Anomaly Score vs Transaction Volume")
+        fig_scatter = px.scatter(
+            scored_df,
+            x="amount_btc",
+            y="anomaly_score",
+            color="risk_tier",
+            color_discrete_map=color_map,
+            hover_data=["tx_id", "earliest_ip", "forensic_pattern", "fee_rate_sat_vb"],
+            labels={"amount_btc": "Volume (BTC)", "anomaly_score": "Forensic Risk Score (0-100)"},
+        )
+        fig_scatter.update_layout(
+            paper_bgcolor="#0b0f19",
+            plot_bgcolor="#0b0f19",
+            font_color="#f8fafc",
+            xaxis=dict(gridcolor="#1e293b"),
+            yaxis=dict(gridcolor="#1e293b"),
+            margin=dict(t=20, b=20, l=20, r=20),
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+    # Priority Alert Feed
+    st.subheader("🚨 Priority Triage Alert Feed (Top Anomalies)")
+    high_risks = scored_df[scored_df["risk_tier"].isin(["CRITICAL", "HIGH"])].head(6)
+
+    if high_risks.empty:
+        st.success("✅ No CRITICAL or HIGH risk alerts detected in this dataset.")
+    else:
+        for _, alert in high_risks.iterrows():
+            tx_id = alert["tx_id"]
+            tier = alert["risk_tier"]
+            score = alert["anomaly_score"]
+            pattern = alert["forensic_pattern"].replace("_", " ")
+            vol = alert["amount_btc"]
+            ip = alert["earliest_ip"]
+            asn = alert["earliest_asn"]
+            country = alert["earliest_country"]
+
+            badge_cls = "badge-critical" if tier == "CRITICAL" else "badge-high"
+
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div style="background:#111827; border: 1px solid #374151; border-left: 4px solid {'#ef4444' if tier == 'CRITICAL' else '#f97316'}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <span class="{badge_cls}">{tier} ALERT</span>
+                                <strong style="color:#f8fafc; margin-left:10px; font-size:1.05rem;">{pattern}</strong>
+                                <span style="color:#9ca3af; font-size:0.85rem; margin-left:8px;">(Score: {score:.1f}/100)</span>
+                            </div>
+                            <div style="color:#38bdf8; font-weight:700; font-size:1.1rem;">{vol:.4f} BTC</div>
+                        </div>
+                        <div style="font-family:'JetBrains Mono', monospace; font-size:0.8rem; color:#94a3b8; margin-top:6px;">
+                            TX: {tx_id} &nbsp;|&nbsp; Origin IP: {ip} ({country}, {asn}) &nbsp;|&nbsp; Rate: {alert['fee_rate_sat_vb']:.1f} sat/vB
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+# -----------------------------------------------------------------------------
+# TAB 2: DATA INGESTION & QUALITY
+# -----------------------------------------------------------------------------
+elif nav_choice == "📂 Data Ingestion & Quality":
+    st.title("📂 Data Ingestion & Quality Assessment")
+    st.markdown("Upload local CSV or JSON files or inspect active dataset schemas in 100% offline air-gapped mode.")
+
+    ing_col1, ing_col2 = st.columns(2)
+
+    with ing_col1:
+        st.subheader("📥 Upload Bitcoin Transactions")
+        tx_file = st.file_uploader("Choose Transactions File (CSV or JSON)", type=["csv", "json"], key="tx_upload")
+        if tx_file is not None:
+            try:
+                parsed_tx = parse_transactions(tx_file)
+                st.session_state.df_tx = parsed_tx
+                st.session_state.dataset_source = f"Custom Upload: {tx_file.name} ({len(parsed_tx)} txs)"
+                st.success(f"Successfully ingested {len(parsed_tx)} transaction records!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to parse transactions file: {str(e)}")
+
+    with ing_col2:
+        st.subheader("📥 Upload Network Observation Logs")
+        net_file = st.file_uploader("Choose Network Logs File (CSV or JSON)", type=["csv", "json"], key="net_upload")
+        if net_file is not None:
+            try:
+                parsed_net = parse_network_logs(net_file)
+                st.session_state.df_net = parsed_net
+                st.success(f"Successfully ingested {len(parsed_net)} network observation logs!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to parse network logs file: {str(e)}")
+
+    st.markdown("---")
+    st.subheader("📋 Forensic Data Quality Report")
+    val_report = validate_forensic_data(st.session_state.df_tx, st.session_state.df_net)
+
+    q1, q2, q3, q4 = st.columns(4)
+    with q1:
+        st.metric("Total Transactions", f"{val_report.tx_count:,}")
+    with q2:
+        st.metric("Network Logs", f"{val_report.net_log_count:,}")
+    with q3:
+        st.metric("Network Coverage", f"{val_report.coverage_percentage:.1f}%")
+    with q4:
+        st.metric("Unique Origin IPs", f"{val_report.unique_ips:,}")
+
+    if val_report.warnings:
+        for w in val_report.warnings:
+            st.warning(f"⚠️ {w}")
+
+    st.markdown("---")
+    st.subheader("🔍 Ingested Transactions Preview")
+    st.dataframe(
+        st.session_state.df_tx[["tx_id", "timestamp", "amount_btc", "fee_btc", "input_count", "output_count", "fee_rate_sat_vb"]].head(25),
+        use_container_width=True,
+    )
+
+    st.subheader("🔍 Ingested Network Logs Preview")
+    st.dataframe(
+        st.session_state.df_net[["log_id", "tx_id", "timestamp_observed", "ip_address", "event_type", "latency_ms", "country", "asn"]].head(25),
+        use_container_width=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# TAB 3: CORRELATION ENGINE
+# -----------------------------------------------------------------------------
+elif nav_choice == "🔗 Correlation Engine":
+    st.title("🔗 Cross-Source Correlation Engine")
+    st.markdown("Matching Bitcoin blockchain transaction records with peer-to-peer network telemetry to uncover broadcast origins.")
+
+    # Correlation telemetry
+    t1, t2, t3, t4 = st.columns(4)
+    with t1:
+        st.metric("Cross-Correlation Rate", f"{summary.correlation_rate_pct:.1f}%", f"{summary.matched_txs} matched")
+    with t2:
+        st.metric("Avg Propagation Spread", f"{summary.avg_propagation_spread_ms:.1f} ms")
+    with t3:
+        st.metric("Avg Confirmation Delay", f"{summary.avg_confirmation_delay_sec:.1f} s")
+    with t4:
+        st.metric("Geographic Spread", f"{summary.unique_countries} Countries", f"{summary.unique_origin_ips} Origin IPs")
+
+    st.markdown("---")
+    st.subheader("🎯 Broadcast Origin Inspector")
+    tx_options = scored_df["tx_id"].tolist()
+    selected_tx = st.selectbox(
+        "Select Transaction Hash to trace P2P origin & propagation hop timeline:",
+        tx_options,
+        index=0,
+    )
+
+    tracer = OriginTracer()
+    origin_info = tracer.trace_transaction_origin(selected_tx, st.session_state.df_net)
+
+    if origin_info["status"] == "ORIGIN_IDENTIFIED":
+        o1, o2, o3, o4 = st.columns(4)
+        with o1:
+            st.metric("Earliest Origin IP", origin_info["origin_ip"])
+        with o2:
+            st.metric("Origin ASN", origin_info["origin_asn"])
+        with o3:
+            st.metric("Country", origin_info["origin_country"])
+        with o4:
+            st.metric("Origin Confidence", f"{origin_info['origin_confidence_pct']}%")
+
+        st.caption(f"First Observed UTC: `{origin_info['first_observed_utc']}` • Client: `{origin_info['user_agent']}`")
+
+        st.markdown("#### ⏱️ Network Propagation Hop Timeline")
+        df_timeline = pd.DataFrame(origin_info["timeline"])
+        st.dataframe(
+            df_timeline[["hop_order", "delta_ms", "ip_address", "country", "asn", "event_type", "latency_ms"]],
+            use_container_width=True,
+        )
+    else:
+        st.info("No matching network observations found for this transaction ID.")
+
+    st.markdown("---")
+    st.subheader("🌐 Network Clustering by Broadcast Origin IP")
+    clusterer = NetworkClusterer()
+    ip_clusters = clusterer.cluster_by_origin_ip(results["df_corr"])
+
+    df_clusters = pd.DataFrame(ip_clusters)
+    if not df_clusters.empty:
+        st.dataframe(
+            df_clusters[["cluster_key", "tx_count", "total_amount_btc", "country", "asn", "is_anonymizer", "risk_flag"]],
+            use_container_width=True,
+        )
+
+
+# -----------------------------------------------------------------------------
+# TAB 4: AI ANOMALY DETECTION & SHAP (XAI)
+# -----------------------------------------------------------------------------
+elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
+    st.title("🧠 AI Anomaly Detection & SHAP Explainability")
+    st.markdown("Unsupervised anomaly detection via Isolation Forest with local Shapley feature attributions (Explainable AI).")
+
+    # Filter controls
+    f1, f2, f3 = st.columns([2, 2, 2])
+    with f1:
+        tier_filter = st.selectbox("Filter Risk Tier", ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "NORMAL"], index=0)
+    with f2:
+        pattern_filter = st.selectbox(
+            "Filter Pattern Signature",
+            ["ALL"] + sorted(list(scored_df["forensic_pattern"].unique())),
+            index=0,
+        )
+    with f3:
+        min_score = st.slider("Minimum Forensic Score", min_value=0.0, max_value=100.0, value=30.0, step=5.0)
+
+    # Filter data
+    filtered_df = scored_df.copy()
+    if tier_filter != "ALL":
+        filtered_df = filtered_df[filtered_df["risk_tier"] == tier_filter]
+    if pattern_filter != "ALL":
+        filtered_df = filtered_df[filtered_df["forensic_pattern"] == pattern_filter]
+    filtered_df = filtered_df[filtered_df["anomaly_score"] >= min_score]
+
+    st.subheader(f"Ranked Suspicious Transactions ({len(filtered_df)} matches)")
+    st.dataframe(
+        filtered_df[[
+            "risk_rank", "risk_tier", "anomaly_score", "forensic_pattern",
+            "amount_btc", "fee_rate_sat_vb", "earliest_ip", "earliest_asn", "earliest_country"
+        ]],
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    st.subheader("🔬 Deep-Dive Evidence & SHAP Explanation")
+
+    if not filtered_df.empty:
+        inspect_tx = st.selectbox("Select Alert to Inspect Evidence:", filtered_df["tx_id"].tolist(), index=0)
+        exp = exp_dict.get(inspect_tx)
+        alert_row = scored_df[scored_df["tx_id"] == inspect_tx].iloc[0]
+
+        d1, d2, d3, d4 = st.columns(4)
+        with d1:
+            st.metric("Anomaly Score", f"{alert_row['anomaly_score']:.1f}/100", alert_row["risk_tier"])
+        with d2:
+            st.metric("Volume", f"{alert_row['amount_btc']:.4f} BTC")
+        with d3:
+            st.metric("Fee Density", f"{alert_row['fee_rate_sat_vb']:.1f} sat/vB")
+        with d4:
+            st.metric("Broadcast Origin IP", alert_row["earliest_ip"])
+
+        # Narrative Explanation Box
+        if exp:
+            st.markdown(
+                f"""
+                <div class="forensic-narrative">
+                    <strong>Forensic Rationale:</strong><br>
+                    {exp['summary_text']}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # SHAP Feature Attribution Plot
+            st.markdown("#### 🎯 SHAP Feature Attribution (Local Drivers)")
+            top_drivers = exp["top_drivers"]
+            df_drivers = pd.DataFrame(top_drivers)
+
+            fig_shap = px.bar(
+                df_drivers,
+                x="abs_impact",
+                y="label",
+                orientation="h",
+                color="abs_impact",
+                color_continuous_scale="Reds",
+                labels={"abs_impact": "|SHAP Impact| (Anomaly Contribution)", "label": "Feature"},
+                hover_data=["value"],
+            )
+            fig_shap.update_layout(
+                paper_bgcolor="#0b0f19",
+                plot_bgcolor="#0b0f19",
+                font_color="#f8fafc",
+                yaxis=dict(autorange="reversed"),
+                margin=dict(t=20, b=20, l=20, r=20),
+            )
+            st.plotly_chart(fig_shap, use_container_width=True)
+
+        # Action: Bookmark to Case Dossier
+        st.markdown("#### 📌 Case Dossier Action")
+        b_col1, b_col2 = st.columns([3, 1])
+        with b_col1:
+            investigator_note = st.text_input("Analyst Note for this Evidence:", value="Suspicious flow identified during automated triage.")
+        with b_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔖 Bookmark to Case", use_container_width=True):
+                st.session_state.case_manager.bookmark_entity(
+                    entity_id=inspect_tx,
+                    entity_type="transaction",
+                    risk_score=alert_row["anomaly_score"],
+                    risk_tier=alert_row["risk_tier"],
+                    pattern=alert_row["forensic_pattern"],
+                    notes=investigator_note,
+                )
+                st.success(f"Bookmarked {inspect_tx[:12]}... into Case Dossier!")
+
+        st.markdown(
+            f"""
+            <div class="forensic-disclaimer">
+                <strong>Safety & Reliability Protocol:</strong> All anomaly scores are probabilistic risk indicators to assist human investigators in prioritizing forensic review. They do not constitute sole proof of crime.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# -----------------------------------------------------------------------------
+# TAB 5: INTERACTIVE GRAPH FORENSICS
+# -----------------------------------------------------------------------------
+elif nav_choice == "🕸️ Interactive Graph Forensics":
+    st.title("🕸️ Interactive Multi-Modal Graph Forensics")
+    st.markdown("Directed graph linking Bitcoin Wallets (Addresses), Transactions, and Network P2P Origin IPs.")
+
+    # Graph telemetry
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Total Graph Nodes", f"{G_metrics['total_nodes']:,}")
+    with m2:
+        st.metric("Directed Edges", f"{G_metrics['total_edges']:,}")
+    with m3:
+        st.metric("Bitcoin Addresses", f"{G_metrics['address_nodes']:,}")
+    with m4:
+        st.metric("P2P Network IPs", f"{G_metrics['network_ip_nodes']:,}")
+
+    st.markdown("---")
+    g_ctrl1, g_ctrl2, g_ctrl3 = st.columns([2, 2, 2])
+    with g_ctrl1:
+        render_engine = st.radio("Visualization Engine", ["Interactive Physics Canvas (PyVis)", "Plotly 2D Graph"], horizontal=True)
+    with g_ctrl2:
+        graph_tier_filter = st.selectbox("Graph Risk Filter", ["ALL", "CRITICAL", "HIGH", "MEDIUM"], index=0)
+    with g_ctrl3:
+        max_graph_nodes = st.slider("Max Visible Nodes", min_value=25, max_value=150, value=75, step=25)
+
+    viz = GraphVisualizer()
+
+    if render_engine == "Interactive Physics Canvas (PyVis)":
+        st.caption("Drag nodes, zoom, pan, and hover over entities to inspect metadata.")
+        pyvis_html = viz.generate_pyvis_html(G, filter_tier=graph_tier_filter, max_nodes=max_graph_nodes, height="620px")
+        components.html(pyvis_html, height=640, scrolling=False)
+    else:
+        plotly_fig = viz.generate_plotly_figure(G, filter_tier=graph_tier_filter, max_nodes=max_graph_nodes)
+        st.plotly_chart(plotly_fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("🕵️ Wallets & Path Tracing")
+    path_col1, path_col2, path_col3 = st.columns([3, 3, 2])
+
+    addr_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "address"]
+    if addr_nodes:
+        with path_col1:
+            src_addr = st.selectbox("Source Address (Inflow)", addr_nodes, index=0)
+        with path_col2:
+            tgt_addr = st.selectbox("Target Address (Outflow)", addr_nodes, index=min(1, len(addr_nodes) - 1))
+        with path_col3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            find_path_btn = st.button("🔎 Trace Flow Path", use_container_width=True)
+
+        if find_path_btn:
+            path = analyzer.find_flow_path(G, src_addr, tgt_addr)
+            if path:
+                st.success(f"Found Directed Flow Path ({len(path)} hops):")
+                st.write(" ➔ ".join([f"`{n[:10]}...`" for n in path]))
+            else:
+                st.info("No direct transfer path found between these two addresses.")
+
+
+# -----------------------------------------------------------------------------
+# TAB 6: CASE DOSSIER & EXPORT
+# -----------------------------------------------------------------------------
+elif nav_choice == "📋 Case Dossier & Export":
+    st.title("📋 Forensic Case Dossier & Evidence Export")
+    st.markdown("Compile bookmarked findings, analyst hypotheses, and generate official court-ready audit reports.")
+
+    case = st.session_state.case_manager
+
+    c_meta1, c_meta2, c_meta3 = st.columns(3)
+    with c_meta1:
+        case.case_id = st.text_input("Case Reference ID", value=case.case_id)
+    with c_meta2:
+        case.case_title = st.text_input("Investigation Title", value=case.case_title)
+    with c_meta3:
+        case.investigator = st.text_input("Lead Forensic Investigator", value=case.investigator)
+
+    st.markdown("---")
+    st.subheader(f"📌 Bookmarked Evidence Entities ({len(case.bookmarks)})")
+
+    if case.bookmarks:
+        bm_records = []
+        for entity_id, bm in case.bookmarks.items():
+            bm_records.append({
+                "Entity ID": entity_id,
+                "Type": bm.entity_type,
+                "Score": bm.risk_score,
+                "Tier": bm.risk_tier,
+                "Pattern": bm.pattern,
+                "Notes": bm.notes,
+                "Timestamp": bm.added_at,
+            })
+        st.dataframe(pd.DataFrame(bm_records), use_container_width=True)
+    else:
+        st.info("No evidence bookmarked yet. Use the '🔖 Bookmark to Case' button in the AI Anomaly tab.")
+
+    st.markdown("---")
+    st.subheader("📝 Case Notes Log")
+    for n in case.notes:
+        st.markdown(f"- {n}")
+
+    new_note = st.text_area("Add Investigator Note:", placeholder="Enter observation, corroborating intelligence, or subpoena ref...")
+    if st.button("➕ Add Note to Log"):
+        if new_note.strip():
+            case.add_note(new_note.strip())
+            st.success("Note logged with UTC timestamp.")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("📥 Export Official Forensic Dossier")
+
+    crit_cnt = int((scored_df["risk_tier"] == "CRITICAL").sum())
+    high_cnt = int((scored_df["risk_tier"] == "HIGH").sum())
+    susp_vol = float(scored_df[scored_df["risk_tier"].isin(["CRITICAL", "HIGH"])]["amount_btc"].sum())
+
+    stats = {
+        "total_txs": summary.total_txs,
+        "matched_txs": summary.matched_txs,
+        "correlation_rate_pct": summary.correlation_rate_pct,
+        "critical_count": crit_cnt,
+        "high_count": high_cnt,
+        "suspicious_volume_btc": susp_vol,
+        "tor_proxy_broadcasts": summary.tor_proxy_broadcasts,
+        "bulletproof_broadcasts": summary.bulletproof_broadcasts,
+    }
+
+    exporter = ForensicReportExporter()
+    explanations_list = results["explanations"]
+
+    html_rep = exporter.generate_html_report(case, stats, scored_df, explanations_list)
+    md_rep = exporter.generate_markdown_report(case, stats, scored_df, explanations_list)
+    json_rep = exporter.export_json(case, stats, scored_df, explanations_list)
+
+    exp_col1, exp_col2, exp_col3 = st.columns(3)
+    with exp_col1:
+        st.download_button(
+            label="📄 Download HTML Report (Print / PDF Ready)",
+            data=html_rep,
+            file_name=f"{case.case_id}_Forensic_Report.html",
+            mime="text/html",
+            use_container_width=True,
+        )
+    with exp_col2:
+        st.download_button(
+            label="📝 Download Markdown Dossier",
+            data=md_rep,
+            file_name=f"{case.case_id}_Audit_Report.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+    with exp_col3:
+        st.download_button(
+            label="💾 Download JSON Audit File",
+            data=json_rep,
+            file_name=f"{case.case_id}_Audit.json",
+            mime="application/json",
+            use_container_width=True,
+        )
