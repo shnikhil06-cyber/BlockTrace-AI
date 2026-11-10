@@ -86,3 +86,4 @@ class OriginTracer:
             "total_propagation_duration_ms": timeline[-1]["delta_ms"] if timeline else 0.0,
             "timeline": timeline
         }
+

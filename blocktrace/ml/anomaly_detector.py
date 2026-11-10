@@ -143,3 +143,4 @@ class AnomalyDetector:
         results["risk_rank"] = np.arange(1, len(results) + 1)
 
         return results
+

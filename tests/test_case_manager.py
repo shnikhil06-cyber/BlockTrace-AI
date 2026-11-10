@@ -61,3 +61,4 @@ def test_case_manager_and_exporter():
 
     json_report = exporter.export_json(case, stats, dummy_df)
     assert "TEST-CASE-01" in json_report
+

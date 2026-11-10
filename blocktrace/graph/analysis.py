@@ -108,3 +108,4 @@ class GraphAnalyzer:
             return nx.shortest_path(G, source=source, target=target)
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
+

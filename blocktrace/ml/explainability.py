@@ -164,6 +164,50 @@ class ForensicExplainer:
             "investigator_disclaimer": "Risk scores are heuristic indicators for prioritizing forensic triage, not definitive legal proof of illicit activity."
         }
 
+    def generate_waterfall_figure(self, exp: Dict[str, Any]):
+        """
+        Generates an interactive Plotly Waterfall figure of SHAP feature contributions.
+        """
+        import plotly.graph_objects as go
+
+        drivers = exp.get("top_drivers", [])
+        if not drivers:
+            return None
+
+        labels = [d["label"] for d in drivers]
+        impacts = [d["shap_impact"] for d in drivers]
+        texts = [f"{v:+.3f}" for v in impacts]
+
+        fig = go.Figure(go.Waterfall(
+            name="SHAP Impact",
+            orientation="v",
+            measure=["relative"] * len(drivers),
+            x=labels,
+            textposition="outside",
+            text=texts,
+            y=impacts,
+            decreasing={"marker": {"color": "#ef4444"}},
+            increasing={"marker": {"color": "#10b981"}},
+            totals={"marker": {"color": "#38bdf8"}},
+            connector={"line": {"color": "#475569", "width": 1.5, "dash": "dot"}},
+        ))
+
+        fig.update_layout(
+            title=dict(
+                text="<b>SHAP Feature Attribution Waterfall (Decision Shift)</b>",
+                font=dict(size=14, color="#f8fafc")
+            ),
+            paper_bgcolor="#0b0f19",
+            plot_bgcolor="#0b0f19",
+            font_color="#f8fafc",
+            yaxis=dict(gridcolor="#1e293b", title="Shapley Attribution Value"),
+            xaxis=dict(tickangle=-25),
+            margin=dict(t=40, b=60, l=40, r=40),
+            showlegend=False
+        )
+
+        return fig
+
     def explain_dataset(
         self,
         X: pd.DataFrame,
@@ -180,3 +224,4 @@ class ForensicExplainer:
             exp = self.explain_transaction(row_x, row_meta)
             explanations.append(exp)
         return explanations
+

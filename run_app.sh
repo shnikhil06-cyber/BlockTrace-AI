@@ -11,3 +11,4 @@ else
     echo "Starting BlockTrace-AI with system streamlit..."
     exec streamlit run web/app.py --server.headless=false --server.port=8501
 fi
+

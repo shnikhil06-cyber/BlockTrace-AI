@@ -320,3 +320,4 @@ class ForensicReportExporter:
             "explanations": (explanations or [])[:20]
         }
         return json.dumps(payload, indent=2, default=str)
+

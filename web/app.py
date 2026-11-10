@@ -5,6 +5,13 @@ using NetworkX Graph Analysis, Isolation Forest, and SHAP Explainability.
 """
 
 import os
+import sys
+
+# Ensure project root is on sys.path for local imports
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import io
 import json
 import streamlit as st
@@ -124,6 +131,7 @@ with st.sidebar:
             "🧠 AI Anomaly & SHAP (XAI)",
             "🕸️ Interactive Graph Forensics",
             "📋 Case Dossier & Export",
+            "🎯 Live Pitch Demo Walkthrough",
         ],
         index=0,
     )
@@ -578,24 +586,38 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
             top_drivers = exp["top_drivers"]
             df_drivers = pd.DataFrame(top_drivers)
 
-            fig_shap = px.bar(
-                df_drivers,
-                x="abs_impact",
-                y="label",
-                orientation="h",
-                color="abs_impact",
-                color_continuous_scale="Reds",
-                labels={"abs_impact": "|SHAP Impact| (Anomaly Contribution)", "label": "Feature"},
-                hover_data=["value"],
+            plot_style = st.radio(
+                "SHAP Visualization Format",
+                ["Waterfall Plot (Decision Shift)", "Horizontal Impact Ranking"],
+                horizontal=True,
+                key="shap_plot_style"
             )
-            fig_shap.update_layout(
-                paper_bgcolor="#0b0f19",
-                plot_bgcolor="#0b0f19",
-                font_color="#f8fafc",
-                yaxis=dict(autorange="reversed"),
-                margin=dict(t=20, b=20, l=20, r=20),
-            )
-            st.plotly_chart(fig_shap, use_container_width=True)
+
+            if plot_style == "Waterfall Plot (Decision Shift)":
+                fig_wf = results["explainer"].generate_waterfall_figure(exp)
+                if fig_wf:
+                    st.plotly_chart(fig_wf, use_container_width=True)
+                else:
+                    st.info("Waterfall plot unavailable for this item.")
+            else:
+                fig_shap = px.bar(
+                    df_drivers,
+                    x="abs_impact",
+                    y="label",
+                    orientation="h",
+                    color="abs_impact",
+                    color_continuous_scale="Reds",
+                    labels={"abs_impact": "|SHAP Impact| (Anomaly Contribution)", "label": "Feature"},
+                    hover_data=["value"],
+                )
+                fig_shap.update_layout(
+                    paper_bgcolor="#0b0f19",
+                    plot_bgcolor="#0b0f19",
+                    font_color="#f8fafc",
+                    yaxis=dict(autorange="reversed"),
+                    margin=dict(t=20, b=20, l=20, r=20),
+                )
+                st.plotly_chart(fig_shap, use_container_width=True)
 
         # Action: Bookmark to Case Dossier
         st.markdown("#### 📌 Case Dossier Action")
@@ -783,3 +805,122 @@ elif nav_choice == "📋 Case Dossier & Export":
             mime="application/json",
             use_container_width=True,
         )
+
+
+# -----------------------------------------------------------------------------
+# TAB 7: LIVE PITCH DEMO WALKTHROUGH
+# -----------------------------------------------------------------------------
+elif nav_choice == "🎯 Live Pitch Demo Walkthrough":
+    st.title("🎯 Live Pitch Demo Walkthrough: Tech Titans")
+    st.markdown("""
+    **coNSTruct 2.0 Ideathon Presentation Guide** • Follow this 4-step interactive walkthrough to demonstrate **BlockTrace-AI** to the judges.
+    """)
+
+    st.markdown("---")
+    step = st.radio(
+        "Demonstration Stage",
+        [
+            "1️⃣ The Problem: Fragmented & Siloed Data",
+            "2️⃣ Cross-Source Correlation: Linking Blockchain to P2P Nodes",
+            "3️⃣ The AI Edge: Isolation Forest Anomaly Detection + SHAP (XAI)",
+            "4️⃣ Graph Forensics & Court-Ready Evidence Dossier",
+        ],
+        horizontal=True
+    )
+
+    if step.startswith("1️⃣"):
+        st.subheader("Stage 1: The Problem — Blockchain & Network Data are Siloed")
+        st.markdown("""
+        **Pitch Talking Point:**
+        > *"Investigators inspect blockchain records, compare network logs and timestamps, and use separate tools to trace transaction relationships. Manual correlation takes time, makes complex patterns harder to spot, and risks data leakage if uploaded to cloud APIs."*
+        """)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### 🔗 On-Chain Blockchain Data (Public Ledger)")
+            st.info("Contains: Tx Hash, Input UTXOs, Output Addresses, Fee, Block Height.\n\n**Missing:** Who broadcasted it? From which IP or Country? Was it routed through Tor?")
+            st.dataframe(st.session_state.df_tx.head(5)[["tx_id", "amount_btc", "fee_btc", "input_count", "output_count"]], use_container_width=True)
+
+        with c2:
+            st.markdown("#### 🌐 P2P Network Telemetry (Off-Chain Logs)")
+            st.info("Contains: Node ID, IP Address, Propagation Timestamps, Relay Latencies, ASNs.\n\n**Missing:** Which addresses are laundering money? What is the multi-hop transaction path?")
+            st.dataframe(st.session_state.df_net.head(5)[["log_id", "tx_id", "ip_address", "country", "asn", "latency_ms"]], use_container_width=True)
+
+    elif step.startswith("2️⃣"):
+        st.subheader("Stage 2: Cross-Source Correlation — Pinpointing the Broadcast Origin")
+        st.markdown("""
+        **Pitch Talking Point:**
+        > *"BlockTrace-AI ingests both datasets completely offline and performs millisecond-precision temporal matching to pinpoint the earliest peer node that first observed the transaction broadcast."*
+        """)
+
+        st.success(f"Correlated {summary.matched_txs} transactions with {summary.total_network_logs} network observation logs ({summary.correlation_rate_pct:.1f}% Match Rate).")
+
+        # Spotlight the peeling chain or ransomware origin
+        peel_alerts = scored_df[scored_df["forensic_pattern"].isin(["PEELING_CHAIN", "RANSOMWARE_FANOUT"])].head(1)
+        if not peel_alerts.empty:
+            spotlight_tx = peel_alerts.iloc[0]["tx_id"]
+            tracer = OriginTracer()
+            trace_data = tracer.trace_transaction_origin(spotlight_tx, st.session_state.df_net)
+
+            o1, o2, o3, o4 = st.columns(4)
+            with o1:
+                st.metric("Estimated Origin IP", trace_data["origin_ip"])
+            with o2:
+                st.metric("Origin ASN", trace_data["origin_asn"])
+            with o3:
+                st.metric("Country", trace_data["origin_country"])
+            with o4:
+                st.metric("Origin Confidence", f"{trace_data['origin_confidence_pct']}%")
+
+            st.markdown("##### ⏱️ Reconstructed P2P Propagation Timeline (Hop by Hop)")
+            st.dataframe(pd.DataFrame(trace_data["timeline"]), use_container_width=True)
+
+    elif step.startswith("3️⃣"):
+        st.subheader("Stage 3: The AI Edge — Multi-Feature Isolation Forest + SHAP Explainability")
+        st.markdown("""
+        **Pitch Talking Point:**
+        > *"Why AI? Simple rule-based thresholds or spreadsheets fail when criminals use peeling chains or micro-fanouts. Isolation Forest models multi-dimensional behavioral deviations simultaneously. Crucially, SHAP explains exactly WHY an alert was flagged so human investigators stay in control."*
+        """)
+
+        # Highlight top critical alert with SHAP waterfall
+        top_anom = scored_df.iloc[0]
+        top_exp = exp_dict.get(top_anom["tx_id"])
+
+        st.markdown(f"""
+        <div class="forensic-narrative">
+            <strong>Spotlight Alert:</strong> <code>{top_anom['tx_id']}</code><br>
+            <strong>Risk Classification:</strong> <span class="badge-critical">{top_anom['risk_tier']}</span> (Score: {top_anom['anomaly_score']:.1f}/100) — Signature: <strong>{top_anom['forensic_pattern']}</strong><br>
+            {top_exp['summary_text'] if top_exp else ''}
+        </div>
+        """, unsafe_allow_html=True)
+
+        if top_exp:
+            st.markdown("##### 📊 Interactive SHAP Decision Shift (Waterfall)")
+            fig_wf = results["explainer"].generate_waterfall_figure(top_exp)
+            if fig_wf:
+                st.plotly_chart(fig_wf, use_container_width=True)
+
+    elif step.startswith("4️⃣"):
+        st.subheader("Stage 4: Multi-Modal Graph Analysis & Legal Evidence Dossier")
+        st.markdown("""
+        **Pitch Talking Point:**
+        > *"Finally, BlockTrace-AI builds a multi-modal relationship graph connecting Wallets, Transactions, and Origin IPs. The analyst can trace peeling chains visually and export a court-ready forensic audit report with full chain of custody."*
+        """)
+
+        g1, g2 = st.columns([3, 2])
+        with g1:
+            st.markdown("##### 🕸️ Forensic Graph Topology")
+            viz = GraphVisualizer()
+            fig = viz.generate_plotly_figure(G, filter_tier="CRITICAL", max_nodes=40)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with g2:
+            st.markdown("##### 📑 Court-Ready Dossier")
+            st.write(f"- **Case ID:** `{st.session_state.case_manager.case_id}`")
+            st.write(f"- **Lead Investigator:** {st.session_state.case_manager.investigator}")
+            st.write(f"- **Organization:** {st.session_state.case_manager.organization}")
+            st.write(f"- **Active Bookmarks:** {len(st.session_state.case_manager.bookmarks)} flagged entities")
+            st.success("✅ 100% Local Offline Processing — Zero Cloud Telemetry Leakage.")
+            st.info("Head to the '📋 Case Dossier & Export' tab to download the complete HTML, Markdown, or JSON audit package!")
+
+

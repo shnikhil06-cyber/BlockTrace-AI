@@ -47,3 +47,4 @@ def test_network_clusterer():
     assert len(ip_clusters) > 0
     assert len(asn_clusters) > 0
     assert "cluster_key" in ip_clusters[0]
+

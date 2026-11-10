@@ -105,3 +105,4 @@ class ForensicCaseManager:
                 for k, v in self.bookmarks.items()
             }
         }
+

@@ -54,3 +54,4 @@ def test_validation_report():
     assert report.tx_count == len(df_tx)
     assert report.net_log_count == len(df_net)
     assert report.coverage_percentage > 50.0
+

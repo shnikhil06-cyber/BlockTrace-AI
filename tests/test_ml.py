@@ -38,3 +38,4 @@ def test_ml_pipeline_and_shap():
     assert "top_drivers" in exp
     assert len(exp["top_drivers"]) > 0
     assert "summary_text" in exp
+

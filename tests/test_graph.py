@@ -39,3 +39,4 @@ def test_graph_construction_and_analysis():
 
     html = viz.generate_pyvis_html(G, filter_tier="ALL", max_nodes=25)
     assert len(html) > 500
+

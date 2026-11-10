@@ -128,3 +128,4 @@ def extract_forensic_features(df_correlated: pd.DataFrame) -> Tuple[pd.DataFrame
         meta["scenario_tag"] = df["scenario_tag"]
 
     return X, meta
+

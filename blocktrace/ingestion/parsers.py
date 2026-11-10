@@ -318,3 +318,4 @@ def parse_network_logs(
         df["user_agent"] = df["user_agent"].astype(str).str.strip()
 
     return df
+
