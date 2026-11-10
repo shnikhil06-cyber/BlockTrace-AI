@@ -1148,7 +1148,9 @@ elif nav_choice == "🔀 Transaction Comparison":
                     unsafe_allow_html=True,
                 )
                 with st.expander("Top SHAP Feature Drivers (TX A)"):
-                    for feat, shap_val in exp_a["top_features"][:6]:
+                    for driver in exp_a["top_drivers"][:6]:
+                        feat = driver["label"]
+                        shap_val = driver["shap_impact"]
                         bar_pct = int(min(abs(shap_val) * 100, 100))
                         color = "#ef4444" if shap_val > 0 else "#10b981"
                         st.markdown(
@@ -1167,7 +1169,9 @@ elif nav_choice == "🔀 Transaction Comparison":
                     unsafe_allow_html=True,
                 )
                 with st.expander("Top SHAP Feature Drivers (TX B)"):
-                    for feat, shap_val in exp_b["top_features"][:6]:
+                    for driver in exp_b["top_drivers"][:6]:
+                        feat = driver["label"]
+                        shap_val = driver["shap_impact"]
                         bar_pct = int(min(abs(shap_val) * 100, 100))
                         color = "#ef4444" if shap_val > 0 else "#10b981"
                         st.markdown(
