@@ -8,6 +8,8 @@ from typing import List, Dict, Any
 import pandas as pd
 import numpy as np
 
+from blocktrace.ingestion.parsers import normalize_tx_id
+
 
 @dataclass
 class DataQualityReport:
@@ -95,11 +97,28 @@ def validate_forensic_data(
         if "tx_id" not in df_net.columns:
             errors.append("Network logs missing mandatory column 'tx_id'.")
         else:
-            unique_tx_ids_net = df_net["tx_id"].nunique()
-            tx_set = set(df_tx["tx_id"])
-            net_set = set(df_net["tx_id"])
+            tx_series_norm = df_tx["tx_id"].apply(normalize_tx_id)
+            net_series_norm = df_net["tx_id"].apply(normalize_tx_id)
+
+            unique_tx_ids_net = net_series_norm.nunique()
+            tx_set = set(tx_series_norm)
+            net_set = set(net_series_norm)
             matched = tx_set.intersection(net_set)
             matched_tx_ids = len(matched)
+
+            # Check prefix/substring matching if direct set intersection is incomplete
+            if matched_tx_ids < len(tx_set) and len(net_set - tx_set) > 0:
+                unmatched_net = net_set - tx_set
+                tx_list = list(tx_set)
+                prefix_matched_txs = set()
+                for nid in unmatched_net:
+                    if len(nid) >= 8:
+                        for tid in tx_list:
+                            if tid.startswith(nid) or nid.startswith(tid):
+                                prefix_matched_txs.add(tid)
+                                break
+                matched_tx_ids = len(matched.union(prefix_matched_txs))
+
             coverage_pct = (matched_tx_ids / max(unique_tx_ids_tx, 1)) * 100.0
 
             if coverage_pct < 50.0:
@@ -108,7 +127,7 @@ def validate_forensic_data(
                 )
 
             unmatched_net = len(net_set - tx_set)
-            if unmatched_net > 0:
+            if unmatched_net > 0 and coverage_pct < 100.0:
                 warnings.append(f"{unmatched_net} network logs reference transaction IDs not present in blockchain dataset.")
 
             if "ip_address" in df_net.columns:

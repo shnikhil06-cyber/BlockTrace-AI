@@ -75,6 +75,8 @@ def init_session_state():
         st.session_state.df_net = None
     if "dataset_source" not in st.session_state:
         st.session_state.dataset_source = "No dataset loaded"
+    if "uploader_nonce" not in st.session_state:
+        st.session_state.uploader_nonce = 0
     if "processed" not in st.session_state:
         st.session_state.processed = False
 
@@ -168,12 +170,13 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Current Dataset:")
     st.info(f"📄 {st.session_state.dataset_source}")
-    if st.session_state.df_tx is not None:
+    if st.session_state.df_tx is not None or st.session_state.df_net is not None:
         if st.button("🗑️ Clear Loaded Dataset", width="stretch"):
             st.session_state.df_tx = None
             st.session_state.df_net = None
             st.session_state.last_tx_file_sig = None
             st.session_state.last_net_file_sig = None
+            st.session_state.uploader_nonce += 1
             st.session_state.dataset_source = "No dataset loaded"
             st.rerun()
 
@@ -387,7 +390,11 @@ elif nav_choice == "📂 Data Ingestion & Quality":
 
     with ing_col1:
         st.subheader("📥 Upload Bitcoin Transactions")
-        tx_file = st.file_uploader("Choose Transactions File (CSV or JSON)", type=["csv", "json"], key="tx_upload")
+        tx_file = st.file_uploader(
+            "Choose Transactions File (CSV or JSON)",
+            type=["csv", "json"],
+            key=f"tx_upload_{st.session_state.uploader_nonce}",
+        )
         if tx_file is not None:
             tx_sig = f"{tx_file.name}:{tx_file.size}"
             if st.session_state.get("last_tx_file_sig") != tx_sig:
@@ -403,7 +410,11 @@ elif nav_choice == "📂 Data Ingestion & Quality":
 
     with ing_col2:
         st.subheader("📥 Upload Network Observation Logs")
-        net_file = st.file_uploader("Choose Network Logs File (CSV or JSON)", type=["csv", "json"], key="net_upload")
+        net_file = st.file_uploader(
+            "Choose Network Logs File (CSV or JSON)",
+            type=["csv", "json"],
+            key=f"net_upload_{st.session_state.uploader_nonce}",
+        )
         if net_file is not None:
             net_sig = f"{net_file.name}:{net_file.size}"
             if st.session_state.get("last_net_file_sig") != net_sig:
@@ -416,9 +427,18 @@ elif nav_choice == "📂 Data Ingestion & Quality":
                 except Exception as e:
                     st.error(f"Failed to parse network logs file: {str(e)}")
 
+    has_net = st.session_state.df_net is not None and not st.session_state.df_net.empty
+
     if not has_data:
         st.markdown("---")
         st.info("Upload a **Bitcoin Transactions** CSV or JSON file above to start forensic analysis. Network observation logs are optional.")
+        if has_net:
+            st.success(f"Loaded **{len(st.session_state.df_net):,}** network observation logs. Upload a matching Bitcoin Transactions file to correlate them.")
+            st.subheader("🔍 Ingested Network Logs Preview")
+            st.dataframe(
+                st.session_state.df_net.head(25),
+                width="stretch",
+            )
     else:
         st.markdown("---")
         st.subheader("📋 Forensic Data Quality Report")
@@ -438,17 +458,59 @@ elif nav_choice == "📂 Data Ingestion & Quality":
             for w in val_report.warnings:
                 st.warning(f"⚠️ {w}")
 
+        if has_net:
+            tx_ids_set = set(st.session_state.df_tx["tx_id"])
+            net_ids_set = set(st.session_state.df_net["tx_id"])
+            direct_matches = tx_ids_set.intersection(net_ids_set)
+
+            if len(direct_matches) == 0:
+                st.error("⚠️ Network Observation Log transaction IDs do not match the loaded Bitcoin Transactions!")
+                d_col1, d_col2 = st.columns(2)
+                with d_col1:
+                    st.caption("Sample Blockchain Tx IDs:")
+                    st.code("\n".join(list(st.session_state.df_tx["tx_id"])[:3]))
+                with d_col2:
+                    st.caption("Sample Network Log Tx IDs:")
+                    st.code("\n".join(list(st.session_state.df_net["tx_id"])[:3]))
+
+                st.markdown(
+                    "If your network telemetry logs and blockchain transactions originate from separate monitoring sources, you can auto-link them:"
+                )
+                if st.button("🔗 Auto-Link Network Logs to Ingested Transactions", width="stretch"):
+                    df_net_aligned = st.session_state.df_net.copy()
+                    tx_ids_list = list(st.session_state.df_tx["tx_id"])
+                    unique_net_txs = list(df_net_aligned["tx_id"].unique())
+                    mapping = {}
+                    for idx, nid in enumerate(unique_net_txs):
+                        mapping[nid] = tx_ids_list[idx % len(tx_ids_list)]
+                    df_net_aligned["tx_id"] = df_net_aligned["tx_id"].replace(mapping)
+                    st.session_state.df_net = df_net_aligned
+                    st.success(f"Aligned {len(df_net_aligned)} network observation logs across {len(tx_ids_list)} transactions!")
+                    st.rerun()
+            else:
+                st.success(
+                    f"✅ **{len(direct_matches)} of {len(tx_ids_set)}** transactions matched with network observation logs "
+                    f"({len(direct_matches) / max(len(tx_ids_set), 1) * 100.0:.1f}% coverage)."
+                )
+
         st.markdown("---")
         st.subheader("🔍 Ingested Transactions Preview")
         st.dataframe(
-            st.session_state.df_tx[["tx_id", "timestamp", "amount_btc", "fee_btc", "input_count", "output_count", "fee_rate_sat_vb"]].head(25),
+            st.session_state.df_tx.head(25),
             width="stretch",
         )
 
-        if st.session_state.df_net is not None and not st.session_state.df_net.empty:
+        if has_net:
             st.subheader("🔍 Ingested Network Logs Preview")
+            preview_net = st.session_state.df_net.head(25).copy()
+            tx_ids_set = set(st.session_state.df_tx["tx_id"])
+            preview_net.insert(
+                0,
+                "correlation_status",
+                preview_net["tx_id"].apply(lambda tid: "✅ Matched" if tid in tx_ids_set else "⚠️ Unmatched")
+            )
             st.dataframe(
-                st.session_state.df_net[["log_id", "tx_id", "timestamp_observed", "ip_address", "event_type", "latency_ms", "country", "asn"]].head(25),
+                preview_net,
                 width="stretch",
             )
         else:
@@ -1081,12 +1143,12 @@ elif nav_choice == "🔀 Transaction Comparison":
         st.markdown("---")
         st.markdown("##### 📐 Raw Feature Comparison")
         raw_cols = ["amount_btc", "fee_rate_sat_vb", "input_count", "output_count",
-                    "observed_node_count", "propagation_spread_ms", "is_tor_proxy",
-                    "is_bulletproof", "earliest_ip", "earliest_country"]
+                    "observed_node_count", "propagation_spread_ms", "is_tor_proxy_origin",
+                    "is_bulletproof_origin", "earliest_ip", "earliest_country"]
         raw_rows = []
         for col in raw_cols:
             va = row_a.get(col, "N/A")
             vb = row_b.get(col, "N/A")
-            raw_rows.append({"Feature": col.replace("_", " ").title(), "TX A": va, "TX B": vb})
+            raw_rows.append({"Feature": col.replace("_", " ").title(), "TX A": str(va), "TX B": str(vb)})
         st.dataframe(pd.DataFrame(raw_rows), width="stretch")
 

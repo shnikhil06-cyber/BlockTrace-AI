@@ -10,6 +10,8 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+from blocktrace.ingestion.parsers import normalize_tx_id
+
 
 @dataclass
 class CorrelationSummary:
@@ -70,8 +72,28 @@ class CorrelationEngine:
             df_tx_clean["correlation_status"] = "NO_NETWORK_DATA"
             return df_tx_clean
 
+        df_net_clean = df_net.copy()
+        df_tx_clean["tx_id"] = df_tx_clean["tx_id"].apply(normalize_tx_id)
+        df_net_clean["tx_id"] = df_net_clean["tx_id"].apply(normalize_tx_id)
+
+        # Smart prefix / truncated hash alignment if exact matching is incomplete
+        tx_set = set(df_tx_clean["tx_id"])
+        net_tx_set = set(df_net_clean["tx_id"])
+        if not net_tx_set.issubset(tx_set):
+            unmatched = net_tx_set - tx_set
+            tx_list = list(tx_set)
+            remap = {}
+            for nid in unmatched:
+                if len(nid) >= 8:
+                    for tid in tx_list:
+                        if tid.startswith(nid) or nid.startswith(tid):
+                            remap[nid] = tid
+                            break
+            if remap:
+                df_net_clean["tx_id"] = df_net_clean["tx_id"].replace(remap)
+
         # Group network logs by tx_id
-        grouped = df_net.groupby("tx_id")
+        grouped = df_net_clean.groupby("tx_id")
 
         network_features: List[Dict[str, Any]] = []
 
