@@ -226,7 +226,7 @@ def render_empty_dataset_notice():
         st.markdown("### 📥 No Forensic Dataset Loaded")
         st.markdown(
             "BlockTrace-AI runs entirely on local, air-gapped forensic data with zero cloud telemetry leakage. "
-            "To begin your investigation, upload your evidence files:"
+            "To begin your investigation, upload your evidence files or load the test dataset below:"
         )
         ec1, ec2 = st.columns(2)
         with ec1:
@@ -245,7 +245,23 @@ def render_empty_dataset_notice():
                 """,
                 unsafe_allow_html=True,
             )
-        st.info("💡 Head to the **📂 Data Ingestion & Quality** module in the sidebar to upload your files.")
+
+        sample_tx = os.path.join(PROJECT_ROOT, "test_data", "transactions_1000.csv")
+        sample_net = os.path.join(PROJECT_ROOT, "test_data", "network_logs_1000.csv")
+        if os.path.exists(sample_tx) and os.path.exists(sample_net):
+            st.markdown("<hr style='margin:12px 0; border-color:#1e293b;'>", unsafe_allow_html=True)
+            qc1, qc2 = st.columns([2, 1], vertical_alignment="bottom")
+            with qc1:
+                st.markdown("**⚡ Quick Test Kit (1,000 Transactions & 3,101 Network Logs)**")
+                st.caption("Pre-generated realistic dataset containing CoinJoin mixing, peeling chains, UTXO sweeps, and Tor relays.")
+            with qc2:
+                if st.button("🚀 1-Click Load 1,000 Sample Records", width="stretch", type="primary"):
+                    st.session_state.df_tx = parse_transactions(sample_tx)
+                    st.session_state.df_net = parse_network_logs(sample_net)
+                    st.session_state.dataset_source = "1,000 Forensic Records Test Kit (1,000 Txs, 3,101 Logs)"
+                    st.rerun()
+
+        st.info("💡 Head to the **📂 Data Ingestion & Quality** module in the sidebar to upload or download custom files.")
 
 
 # Execute Pipeline only when transaction data is loaded
@@ -453,6 +469,41 @@ elif nav_choice == "📂 Data Ingestion & Quality":
     st.title("📂 Data Ingestion & Quality Assessment")
     st.markdown("Upload local CSV or JSON files or inspect active dataset schemas in 100% offline air-gapped mode.")
 
+    # Quick Testing Kit with 1,000 Entries
+    sample_tx_path = os.path.join(PROJECT_ROOT, "test_data", "transactions_1000.csv")
+    sample_net_path = os.path.join(PROJECT_ROOT, "test_data", "network_logs_1000.csv")
+    if os.path.exists(sample_tx_path) and os.path.exists(sample_net_path):
+        with st.container(border=True):
+            st.markdown("#### ⚡ 1,000 Forensic Records Test Kit")
+            st.caption("Need sample data to test the platform? Download the generated 1,000-entry dataset or load it with 1 click:")
+            q1, q2, q3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+            with q1:
+                if st.button("🚀 1-Click Load 1,000 Test Records", width="stretch", type="primary"):
+                    st.session_state.df_tx = parse_transactions(sample_tx_path)
+                    st.session_state.df_net = parse_network_logs(sample_net_path)
+                    st.session_state.dataset_source = "1,000 Forensic Records Test Kit (1,000 Txs, 3,101 Logs)"
+                    st.success("Successfully loaded 1,000 transactions & 3,101 network logs!")
+                    st.rerun()
+            with q2:
+                with open(sample_tx_path, "rb") as f_tx:
+                    st.download_button(
+                        label="⬇️ Download tx_1000.csv",
+                        data=f_tx.read(),
+                        file_name="transactions_1000.csv",
+                        mime="text/csv",
+                        width="stretch",
+                    )
+            with q3:
+                with open(sample_net_path, "rb") as f_net:
+                    st.download_button(
+                        label="⬇️ Download net_1000.csv",
+                        data=f_net.read(),
+                        file_name="network_logs_1000.csv",
+                        mime="text/csv",
+                        width="stretch",
+                    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
     ing_col1, ing_col2 = st.columns(2)
 
     with ing_col1:
