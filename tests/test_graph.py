@@ -4,14 +4,14 @@ Tests for Graph Construction, Analysis, and PyVis/Plotly Rendering.
 
 import pytest
 import networkx as nx
-from blocktrace.ingestion import generate_scenario_data
+from conftest import make_test_datasets
 from blocktrace.correlation import CorrelationEngine
 from blocktrace.ml import extract_forensic_features, AnomalyDetector
 from blocktrace.graph import ForensicGraphBuilder, GraphAnalyzer, GraphVisualizer
 
 
 def test_graph_construction_and_analysis():
-    df_tx, df_net = generate_scenario_data("peeling_chain", n_normal=15, seed=42)
+    df_tx, df_net = make_test_datasets(n_normal=15, seed=42)
     correlator = CorrelationEngine()
     df_corr = correlator.correlate(df_tx, df_net)
 

@@ -166,18 +166,12 @@ Open `http://localhost:8501` in your browser.
 For automated batch investigations and air-gapped servers without GUI:
 
 ```bash
-# Run quick end-to-end demo on built-in synthetic benchmarks:
-blocktrace demo
-
 # Run forensic pipeline on custom files:
 blocktrace run --txs path/to/transactions.csv \
                --net path/to/network_logs.csv \
                --out case_report.html \
                --json case_audit.json \
                --contamination 0.08
-
-# Generate new synthetic forensic scenarios:
-blocktrace generate --out-dir data/
 ```
 
 ---
@@ -211,7 +205,7 @@ tests/test_ml.py::test_ml_pipeline_and_shap PASSED
 | Milestone | Pitch Deck Commitment | Delivered in Code |
 | :--- | :--- | :---: |
 | **Week 1: Foundation** | Offline Linux environment, parse local CSV/JSON datasets, build initial correlation engine | ✅ Completed (`blocktrace.ingestion`, `blocktrace.correlation`) |
-| **Week 2: Build Out** | Build relationship graphs (NetworkX), integrate Isolation Forest anomaly detection, test synthetic/labeled scenarios, integrate SHAP | ✅ Completed (`blocktrace.ml`, `blocktrace.graph`, `data/scenarios/`) |
+| **Week 2: Build Out** | Build relationship graphs (NetworkX), integrate Isolation Forest anomaly detection, test labeled scenarios, integrate SHAP | ✅ Completed (`blocktrace.ml`, `blocktrace.graph`) |
 | **Week 3: Ship & Polish**| Streamlit offline dashboard, ranked alerts, interactive visual graph, case dossier, HTML/MD/JSON export | ✅ Completed (`web/app.py`, `blocktrace.forensic_case`) |
 
 ---

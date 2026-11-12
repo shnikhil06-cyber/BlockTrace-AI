@@ -1,6 +1,6 @@
 """
 Command Line Interface (CLI) for BlockTrace-AI.
-Enables automated headless batch analysis, scenario generation, and report building offline.
+Enables automated headless batch analysis and report building offline.
 """
 
 import argparse
@@ -9,7 +9,7 @@ import os
 import json
 import pandas as pd
 
-from blocktrace.ingestion import parse_transactions, parse_network_logs, validate_forensic_data, save_synthetic_data_to_disk
+from blocktrace.ingestion import parse_transactions, parse_network_logs, validate_forensic_data
 from blocktrace.correlation import CorrelationEngine, OriginTracer, NetworkClusterer
 from blocktrace.ml import extract_forensic_features, AnomalyDetector, ForensicExplainer
 from blocktrace.graph import ForensicGraphBuilder, GraphAnalyzer, GraphVisualizer
@@ -137,28 +137,9 @@ def main():
     run_parser.add_argument("--json", default=None, help="Path to save JSON audit export")
     run_parser.add_argument("--contamination", type=float, default=0.08, help="Expected anomaly ratio")
 
-    # Generate subcommand
-    gen_parser = subparsers.add_parser("generate", help="Generate synthetic forensic scenarios and sample datasets")
-    gen_parser.add_argument("--out-dir", default="data", help="Output directory for generated files")
-
-    # Demo subcommand
-    demo_parser = subparsers.add_parser("demo", help="Run quick demo on built-in synthetic datasets")
-
     args = parser.parse_args()
 
-    if args.command == "generate":
-        print(f"Generating synthetic forensic datasets into '{args.out_dir}'...")
-        save_synthetic_data_to_disk(args.out_dir)
-        print("Done!")
-    elif args.command == "demo":
-        save_synthetic_data_to_disk("data")
-        run_pipeline(
-            tx_path="data/sample/bitcoin_transactions.csv",
-            net_path="data/sample/network_observations.csv",
-            out_html="demo_forensic_report.html",
-            out_json="demo_forensic_report.json"
-        )
-    elif args.command == "run":
+    if args.command == "run":
         run_pipeline(
             tx_path=args.txs,
             net_path=args.net,

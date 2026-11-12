@@ -10,12 +10,12 @@ from blocktrace.ingestion import (
     parse_transactions,
     parse_network_logs,
     validate_forensic_data,
-    generate_scenario_data
 )
+from conftest import make_test_datasets
 
 
 def test_generate_and_parse_transactions():
-    df_tx, df_net = generate_scenario_data("all", n_normal=30, seed=123)
+    df_tx, df_net = make_test_datasets(n_normal=30, seed=123)
     assert not df_tx.empty
     assert "tx_id" in df_tx.columns
     assert "amount_btc" in df_tx.columns
@@ -33,7 +33,7 @@ def test_generate_and_parse_transactions():
 
 
 def test_generate_and_parse_network_logs():
-    df_tx, df_net = generate_scenario_data("peeling_chain", n_normal=10, seed=123)
+    df_tx, df_net = make_test_datasets(n_normal=10, seed=123)
     assert not df_net.empty
     assert "tx_id" in df_net.columns
     assert "ip_address" in df_net.columns
@@ -48,7 +48,7 @@ def test_generate_and_parse_network_logs():
 
 
 def test_validation_report():
-    df_tx, df_net = generate_scenario_data("all", n_normal=20, seed=42)
+    df_tx, df_net = make_test_datasets(n_normal=20, seed=42)
     report = validate_forensic_data(df_tx, df_net)
     assert report.is_valid is True
     assert report.tx_count == len(df_tx)

@@ -307,6 +307,8 @@ def build_geo_broadcast_map(scored_df: pd.DataFrame, df_net: Optional[pd.DataFra
     agg["lon"] = lons
 
     agg = agg[(agg["lat"] != 0.0) | (agg["lon"] != 0.0)]
+    if agg.empty:
+        return None
 
     fig = go.Figure()
 

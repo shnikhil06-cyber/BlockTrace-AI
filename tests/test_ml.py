@@ -3,13 +3,13 @@ Tests for Machine Learning Feature Extraction, Anomaly Detection, and SHAP Expla
 """
 
 import pytest
-from blocktrace.ingestion import generate_scenario_data
+from conftest import make_test_datasets
 from blocktrace.correlation import CorrelationEngine
 from blocktrace.ml import extract_forensic_features, AnomalyDetector, ForensicExplainer
 
 
 def test_ml_pipeline_and_shap():
-    df_tx, df_net = generate_scenario_data("all", n_normal=35, seed=42)
+    df_tx, df_net = make_test_datasets(n_normal=35, seed=42)
     correlator = CorrelationEngine()
     df_corr = correlator.correlate(df_tx, df_net)
 

@@ -174,8 +174,10 @@ class CorrelationEngine:
         tor_count = int(correlated_df["is_tor_proxy_origin"].sum())
         bp_count = int(correlated_df["is_bulletproof_origin"].sum())
 
-        avg_prop = float(correlated_df[correlated_df["network_correlated"]]["propagation_spread_ms"].mean() or 0.0)
-        avg_conf = float(correlated_df[correlated_df["network_correlated"]]["confirmation_delay_sec"].mean() or 0.0)
+        avg_prop_raw = correlated_df[correlated_df["network_correlated"]]["propagation_spread_ms"].mean()
+        avg_conf_raw = correlated_df[correlated_df["network_correlated"]]["confirmation_delay_sec"].mean()
+        avg_prop = float(avg_prop_raw) if pd.notna(avg_prop_raw) else 0.0
+        avg_conf = float(avg_conf_raw) if pd.notna(avg_conf_raw) else 0.0
 
         return CorrelationSummary(
             total_txs=total_txs,

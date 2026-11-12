@@ -3,12 +3,12 @@ Tests for Correlation Engine, Origin Tracer, and Network Clustering.
 """
 
 import pytest
-from blocktrace.ingestion import generate_scenario_data
+from conftest import make_test_datasets
 from blocktrace.correlation import CorrelationEngine, OriginTracer, NetworkClusterer
 
 
 def test_correlation_engine():
-    df_tx, df_net = generate_scenario_data("all", n_normal=25, seed=42)
+    df_tx, df_net = make_test_datasets(n_normal=25, seed=42)
     correlator = CorrelationEngine()
     df_corr = correlator.correlate(df_tx, df_net)
 
@@ -23,7 +23,7 @@ def test_correlation_engine():
 
 
 def test_origin_tracer():
-    df_tx, df_net = generate_scenario_data("ransomware_fanout", n_normal=5, seed=99)
+    df_tx, df_net = make_test_datasets(n_normal=5, seed=99)
     tracer = OriginTracer()
 
     target_tx = df_tx[df_tx["scenario_tag"] == "ransomware_fanout"].iloc[0]["tx_id"]
@@ -36,7 +36,7 @@ def test_origin_tracer():
 
 
 def test_network_clusterer():
-    df_tx, df_net = generate_scenario_data("all", n_normal=30, seed=42)
+    df_tx, df_net = make_test_datasets(n_normal=30, seed=42)
     correlator = CorrelationEngine()
     df_corr = correlator.correlate(df_tx, df_net)
 
