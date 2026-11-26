@@ -39,3 +39,14 @@ def test_ml_pipeline_and_shap():
     assert len(exp["top_drivers"]) > 0
     assert "summary_text" in exp
 
+    # Verify explain_dataset aligns sorted scored_df rows back to exact original X rows
+    explanations = explainer.explain_dataset(X, scored)
+    assert len(explanations) == len(scored)
+    top_scored_row = scored.iloc[0]
+    top_orig_pos = int(top_scored_row["_feature_row_pos"])
+    top_exp = explanations[0]
+    assert top_exp["tx_id"] == top_scored_row["tx_id"]
+    impacts_by_feat = {d["feature"]: d["value"] for d in top_exp["all_impacts"]}
+    assert impacts_by_feat["amount_btc"] == pytest.approx(float(X.iloc[top_orig_pos]["amount_btc"]))
+    assert impacts_by_feat["output_count"] == pytest.approx(float(X.iloc[top_orig_pos]["output_count"]))
+

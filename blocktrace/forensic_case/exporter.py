@@ -4,6 +4,7 @@ Generates comprehensive offline forensic reports in HTML, Markdown, and JSON for
 """
 
 from typing import Dict, Any, List, Optional
+import html as html_lib
 import json
 import pandas as pd
 from .case_manager import ForensicCaseManager
@@ -120,7 +121,8 @@ class ForensicReportExporter:
         """
         md_text = self.generate_markdown_report(case, summary_stats, flagged_txs, explanations)
 
-        # Build clean self-contained HTML
+        # Build clean self-contained HTML (with full HTML escaping)
+        esc = lambda val: html_lib.escape(str(val), quote=True)
         rows_html = ""
         for _, row in flagged_txs.head(25).iterrows():
             tx_id = str(row["tx_id"])
@@ -135,25 +137,65 @@ class ForensicReportExporter:
                 '<span style="background:#16a34a;color:#fff;padding:2px 8px;border-radius:4px;font-weight:bold;">NORMAL</span>'
             )
 
+            short_tx = f"{tx_id[:16]}...{tx_id[-8:]}" if len(tx_id) > 24 else tx_id
             rows_html += f"""
             <tr>
-                <td>#{row.get('risk_rank', '-')}</td>
-                <td style="font-family:monospace;font-size:12px;">{tx_id[:16]}...{tx_id[-8:]}</td>
+                <td>#{esc(row.get('risk_rank', '-'))}</td>
+                <td style="font-family:monospace;font-size:12px;">{esc(short_tx)}</td>
                 <td><b>{float(row.get('amount_btc', 0)):.4f} BTC</b></td>
                 <td>{float(row.get('fee_rate_sat_vb', 0)):.1f}</td>
-                <td style="font-family:monospace;">{row.get('earliest_ip', 'N/A')}</td>
-                <td>{row.get('earliest_asn', 'N/A')} ({row.get('earliest_country', '??')})</td>
+                <td style="font-family:monospace;">{esc(row.get('earliest_ip', 'N/A'))}</td>
+                <td>{esc(row.get('earliest_asn', 'N/A'))} ({esc(row.get('earliest_country', '??'))})</td>
                 <td>{tier_badge}</td>
                 <td><b>{float(row.get('anomaly_score', 0)):.1f}</b></td>
-                <td>{str(row.get('forensic_pattern', 'N/A')).replace('_', ' ')}</td>
+                <td>{esc(str(row.get('forensic_pattern', 'N/A')).replace('_', ' '))}</td>
             </tr>
             """
+
+        bookmarks_html = ""
+        if case.bookmarks:
+            bm_rows = ""
+            for entity_id, bm in case.bookmarks.items():
+                bm_rows += f"""
+                <tr>
+                    <td style="font-family:monospace;font-size:12px;">{esc(entity_id)}</td>
+                    <td>{esc(bm.entity_type)}</td>
+                    <td>{esc(bm.risk_tier)} ({bm.risk_score:.1f})</td>
+                    <td>{esc(bm.pattern.replace('_', ' '))}</td>
+                    <td>{esc(bm.notes)}</td>
+                    <td>{esc(bm.added_at)}</td>
+                </tr>
+                """
+            bookmarks_html = f"""
+            <h3>Bookmarked Evidence Entities ({len(case.bookmarks)})</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Entity ID</th>
+                        <th>Type</th>
+                        <th>Tier &amp; Score</th>
+                        <th>Pattern</th>
+                        <th>Investigator Note</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>{bm_rows}</tbody>
+            </table>
+            """
+
+        notes_items = "".join(f"<li>{esc(n)}</li>" for n in case.notes)
+        notes_html = f"""
+        <h3>Investigator Case Notes Log ({len(case.notes)})</h3>
+        <ul style="background:#0f172a;padding:18px 32px;border-radius:8px;border:1px solid #334155;">
+            {notes_items}
+        </ul>
+        """ if case.notes else ""
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>BlockTrace-AI Forensic Report - {case.case_id}</title>
+    <title>BlockTrace-AI Forensic Report - {esc(case.case_id)}</title>
     <style>
         body {{
             background-color: #0f172a;
@@ -209,7 +251,8 @@ class ForensicReportExporter:
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 12px;
+            margin-bottom: 24px;
             font-size: 13px;
         }}
         th, td {{
@@ -248,11 +291,11 @@ class ForensicReportExporter:
 <div class="container">
     <div class="header">
         <h1>🔍 BlockTrace-AI | Forensic Investigation Dossier</h1>
-        <div><strong>Case ID:</strong> {case.case_id} &nbsp;|&nbsp; <strong>Title:</strong> {case.case_title}</div>
+        <div><strong>Case ID:</strong> {esc(case.case_id)} &nbsp;|&nbsp; <strong>Title:</strong> {esc(case.case_title)}</div>
         <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">
-            <strong>Lead Investigator:</strong> {case.investigator} &nbsp;|&nbsp; 
-            <strong>Organization:</strong> {case.organization} &nbsp;|&nbsp; 
-            <strong>Generated:</strong> {case.created_at} UTC
+            <strong>Lead Investigator:</strong> {esc(case.investigator)} &nbsp;|&nbsp;
+            <strong>Organization:</strong> {esc(case.organization)} &nbsp;|&nbsp;
+            <strong>Generated:</strong> {esc(case.created_at)} UTC
         </div>
     </div>
 
@@ -294,6 +337,9 @@ class ForensicReportExporter:
             {rows_html}
         </tbody>
     </table>
+
+    {bookmarks_html}
+    {notes_html}
 
     <div class="disclaimer">
         <strong>Forensic Chain of Custody Notice:</strong> All metrics, anomaly scores, and explainable feature attributions were calculated in a secure offline environment. Anomaly indicators reflect multivariate statistical deviations and heuristic signatures, provided to augment human investigator decision-making in accordance with digital forensics standards.

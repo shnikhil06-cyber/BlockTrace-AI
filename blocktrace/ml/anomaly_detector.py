@@ -81,12 +81,14 @@ class AnomalyDetector:
         risk_scores = np.round(normalized * 100.0, 1)
 
         results = meta_df.copy()
+        # Preserve original row position so X aligns 1-to-1 after risk-score sorting
+        results["_feature_row_pos"] = np.arange(len(results))
         results["raw_anomaly_score"] = raw_scores
         results["anomaly_score"] = risk_scores
         results["is_anomaly"] = pred_labels == -1
 
         # Classify Risk Tier
-        def _get_tier(score: float, is_anom: bool) -> str:
+        def _get_tier(score: float) -> str:
             if score >= 80.0:
                 return "CRITICAL"
             elif score >= 65.0:
@@ -98,9 +100,7 @@ class AnomalyDetector:
             else:
                 return "NORMAL"
 
-        results["risk_tier"] = [
-            _get_tier(s, a) for s, a in zip(results["anomaly_score"], results["is_anomaly"])
-        ]
+        results["risk_tier"] = [_get_tier(s) for s in results["anomaly_score"]]
 
         # Classify Forensic Pattern based on feature profiles
         patterns = []
@@ -114,24 +114,31 @@ class AnomalyDetector:
                 continue
 
             # Check specific laundering/attack signatures
-            out_cnt = row_x["output_count"]
-            in_cnt = row_x["input_count"]
-            fee_rate = row_x["fee_rate_sat_vb"]
-            is_tor = row_x["is_tor_proxy"]
-            is_bp = row_x["is_bulletproof"]
-            prop_spread = row_x["propagation_spread_ms"]
+            amt = float(row_x["amount_btc"])
+            fee_ratio = float(row_x["fee_to_amount_ratio"])
+            out_cnt = float(row_x["output_count"])
+            in_cnt = float(row_x["input_count"])
+            fee_rate = float(row_x["fee_rate_sat_vb"])
+            is_tor = float(row_x["is_tor_proxy"])
+            is_bp = float(row_x["is_bulletproof"])
 
-            if out_cnt >= 15 and in_cnt <= 2:
+            if amt < 0.005 and out_cnt >= 5 and fee_ratio > 0.05:
+                patterns.append("DUSTING_ATTACK")
+            elif out_cnt >= 15 and in_cnt <= 2:
                 patterns.append("RANSOMWARE_FANOUT")
-            elif in_cnt >= 4 and out_cnt >= 8 and row_x["is_round_amount"] == 1.0:
+            elif in_cnt >= 4 and out_cnt >= 6 and (row_x["is_round_amount"] == 1.0 or out_cnt >= 8):
                 patterns.append("COINJOIN_MIXER")
-            elif in_cnt == 1 and out_cnt == 2 and (is_tor == 1.0 or row_meta["is_tor_proxy_origin"]):
+            elif in_cnt >= 8 and out_cnt <= 2:
+                patterns.append("UTXO_CONSOLIDATION_SWEEP")
+            elif in_cnt == 1 and out_cnt == 2 and (
+                is_tor == 1.0 or bool(row_meta["is_tor_proxy_origin"]) or amt > 20.0
+            ):
                 patterns.append("PEELING_CHAIN")
-            elif is_bp == 1.0 or row_meta["is_bulletproof_origin"]:
+            elif is_bp == 1.0 or bool(row_meta["is_bulletproof_origin"]):
                 patterns.append("BULLETPROOF_RELAY_BURST")
             elif fee_rate > 150.0:
                 patterns.append("HIGH_FEE_SURGE")
-            elif row_x["amount_btc"] > 20.0:
+            elif amt > 20.0:
                 patterns.append("WHALE_TRANSFER_ANOMALY")
             else:
                 patterns.append("MULTIVARIATE_NETWORK_ANOMALY")

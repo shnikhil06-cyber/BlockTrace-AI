@@ -62,8 +62,11 @@ def build_wallet_risk_profiles(scored_df: pd.DataFrame) -> pd.DataFrame:
 
     df_records = pd.DataFrame(records)
 
+    df_records["is_flagged"] = df_records["risk_tier"].isin(["CRITICAL", "HIGH"])
+
     profile = df_records.groupby("address").agg(
         tx_count=("tx_id", "nunique"),
+        flagged_txs=("is_flagged", "sum"),
         total_btc=("amount_btc", "sum"),
         max_risk_score=("anomaly_score", "max"),
         mean_risk_score=("anomaly_score", "mean"),
@@ -412,14 +415,28 @@ def build_comparison_chart(
         "is_bulletproof": "Bulletproof ASN (0/1)",
     }
 
-    idx_a = scored_df[scored_df["tx_id"] == tx_id_a].index
-    idx_b = scored_df[scored_df["tx_id"] == tx_id_b].index
+    match_a = scored_df[scored_df["tx_id"] == tx_id_a]
+    match_b = scored_df[scored_df["tx_id"] == tx_id_b]
 
-    if idx_a.empty or idx_b.empty:
+    if match_a.empty or match_b.empty:
         return None
 
-    row_a = X.loc[idx_a[0]] if idx_a[0] in X.index else None
-    row_b = X.loc[idx_b[0]] if idx_b[0] in X.index else None
+    def _get_feature_row(match_df: pd.DataFrame, tx_id: str):
+        # 1. Use preserved original feature position when available (post-sort safe)
+        if "_feature_row_pos" in match_df.columns:
+            pos = int(match_df["_feature_row_pos"].iloc[0])
+            if 0 <= pos < len(X):
+                return X.iloc[pos]
+        # 2. Use precomputed SHAP impact values if passed in exp_dict
+        exp = exp_dict.get(tx_id) if exp_dict else None
+        if exp and "all_impacts" in exp:
+            return pd.Series({d["feature"]: d["value"] for d in exp["all_impacts"]})
+        # 3. Direct index fallback for unsorted caller frames
+        raw_idx = match_df.index[0]
+        return X.loc[raw_idx] if raw_idx in X.index else None
+
+    row_a = _get_feature_row(match_a, tx_id_a)
+    row_b = _get_feature_row(match_b, tx_id_b)
 
     if row_a is None or row_b is None:
         return None
@@ -680,31 +697,31 @@ def build_sankey_flow(scored_df: pd.DataFrame, max_txs: int = 20) -> go.Figure:
 
     node_index = {}
 
-    def get_or_add(label: str, color: str) -> int:
-        if label not in node_index:
-            node_index[label] = len(node_labels)
-            node_labels.append(label)
+    def get_or_add(node_key: str, display_label: str, color: str) -> int:
+        if node_key not in node_index:
+            node_index[node_key] = len(node_labels)
+            node_labels.append(display_label)
             node_colors.append(color)
-        return node_index[label]
+        return node_index[node_key]
 
     for _, row in top_txs.iterrows():
         tx_id = str(row["tx_id"])
+        tx_key = f"tx::{tx_id}"
         tx_label = f"TX:{tx_id[:8]}..."
         tier = str(row.get("risk_tier", "NORMAL"))
         amt = float(row.get("amount_btc", 0.01))
         tx_color = tier_color_map.get(tier, "rgba(107,114,128,0.8)")
 
-        tx_idx = get_or_add(tx_label, tx_color)
+        tx_idx = get_or_add(tx_key, tx_label, tx_color)
 
         senders = row.get("sender_addresses", [])
         receivers = row.get("receiver_addresses", [])
 
-        # Sender → TX
+        # Sender → TX (distinct sender namespace prevents self-change loops in Sankey)
         if isinstance(senders, list):
             for addr in senders[:2]:  # Limit for readability
                 addr = str(addr)
-                s_label = f"{addr[:8]}..."
-                s_idx = get_or_add(s_label, "rgba(56,189,248,0.7)")
+                s_idx = get_or_add(f"in::{addr}", f"{addr[:8]}...", "rgba(56,189,248,0.7)")
                 split_amt = round(amt / max(len(senders), 1), 4)
                 source_idxs.append(s_idx)
                 target_idxs.append(tx_idx)
@@ -715,8 +732,7 @@ def build_sankey_flow(scored_df: pd.DataFrame, max_txs: int = 20) -> go.Figure:
         if isinstance(receivers, list):
             for addr in receivers[:2]:
                 addr = str(addr)
-                r_label = f"{addr[:8]}..."
-                r_idx = get_or_add(r_label, "rgba(168,85,247,0.7)")
+                r_idx = get_or_add(f"out::{addr}", f"{addr[:8]}...", "rgba(168,85,247,0.7)")
                 split_amt = round(amt / max(len(receivers), 1), 4)
                 source_idxs.append(tx_idx)
                 target_idxs.append(r_idx)

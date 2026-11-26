@@ -8,7 +8,7 @@ from typing import List, Dict, Any
 import pandas as pd
 import numpy as np
 
-from blocktrace.ingestion.parsers import normalize_tx_id
+from blocktrace.ingestion.parsers import normalize_tx_id, build_prefix_remap
 
 
 @dataclass
@@ -108,16 +108,8 @@ def validate_forensic_data(
 
             # Check prefix/substring matching if direct set intersection is incomplete
             if matched_tx_ids < len(tx_set) and len(net_set - tx_set) > 0:
-                unmatched_net = net_set - tx_set
-                tx_list = list(tx_set)
-                prefix_matched_txs = set()
-                for nid in unmatched_net:
-                    if len(nid) >= 8:
-                        for tid in tx_list:
-                            if tid.startswith(nid) or nid.startswith(tid):
-                                prefix_matched_txs.add(tid)
-                                break
-                matched_tx_ids = len(matched.union(prefix_matched_txs))
+                remap = build_prefix_remap(net_set, tx_set)
+                matched_tx_ids = len(matched.union(remap.values()))
 
             coverage_pct = (matched_tx_ids / max(unique_tx_ids_tx, 1)) * 100.0
 

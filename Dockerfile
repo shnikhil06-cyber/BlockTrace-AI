@@ -25,3 +25,4 @@ ENV STREAMLIT_SERVER_HEADLESS=true
 
 # Launch Streamlit app
 CMD ["streamlit", "run", "web/app.py"]
+

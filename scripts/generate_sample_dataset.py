@@ -194,6 +194,10 @@ def generate_1000_dataset():
         })
 
         # Generate P2P network telemetry observations
+        # Mempool broadcast happens BEFORE block confirmation (tx_time)
+        mempool_delay_sec = random.randint(25, 360) if i <= 780 else random.randint(80, 620)
+        first_seen_time = tx_time - timedelta(seconds=mempool_delay_sec)
+
         # Hop 0 is the broadcast origin
         for hop in range(hop_count):
             hop_asn_info = random.choice(asn_pool) if hop == 0 else random.choice(BENIGN_ASNS)
@@ -201,13 +205,13 @@ def generate_1000_dataset():
             hop_ip = make_ip(i * 13 + hop * 97, is_tor=(hop == 0 and is_tor))
             hop_delta_ms = 0 if hop == 0 else (hop * random.randint(85, 240) + random.randint(5, 45))
             hop_latency = round(random.uniform(15.0, 75.0) if hop > 0 else (random.uniform(180.0, 420.0) if is_tor else random.uniform(25.0, 85.0)), 1)
-            
+
             event_type = "inv_broadcast" if hop == 0 else ("peer_relay" if hop < hop_count - 1 else "mempool_accept")
 
             network_logs.append({
                 "log_id": f"net_{net_log_id:06d}",
                 "tx_id": tx_id,
-                "timestamp_observed": (tx_time + timedelta(milliseconds=hop_delta_ms)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC",
+                "timestamp_observed": (first_seen_time + timedelta(milliseconds=hop_delta_ms)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " UTC",
                 "ip_address": hop_ip,
                 "port": 8333,
                 "event_type": event_type,

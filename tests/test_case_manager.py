@@ -58,6 +58,15 @@ def test_case_manager_and_exporter():
     html_report = exporter.generate_html_report(case, stats, dummy_df)
     assert "<!DOCTYPE html>" in html_report
     assert "TEST-CASE-01" in html_report
+    assert "Bookmarked Evidence Entities" in html_report
+    assert "Investigator Case Notes Log" in html_report
+    assert "Suspect extortion payout" in html_report
+
+    # Verify HTML escaping prevents markup injection in case metadata & notes
+    case.add_note("<script>alert('xss')</script>")
+    escaped_html = exporter.generate_html_report(case, stats, dummy_df)
+    assert "<script>" not in escaped_html
+    assert "&lt;script&gt;" in escaped_html
 
     json_report = exporter.export_json(case, stats, dummy_df)
     assert "TEST-CASE-01" in json_report

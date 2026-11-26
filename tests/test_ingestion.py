@@ -113,4 +113,21 @@ abcdef1234567890,2026-03-01 11:59:00,198.51.100.5,AS15169,US
     assert report.coverage_percentage == 100.0
 
 
+def test_fee_sat_and_size_bytes_and_prefix_remap():
+    import io
+    from blocktrace.ingestion.parsers import build_prefix_remap
+
+    tx_csv = """tx_id,amount_btc,fee_sat,size_bytes,lock_time
+0123456789abcdef0123456789abcdef,0.5,25000,250,840001
+"""
+    df_tx = parse_transactions(io.StringIO(tx_csv))
+    assert df_tx["fee_btc"].iloc[0] == pytest.approx(0.00025)
+    assert df_tx["size_vbytes"].iloc[0] == 250
+    assert df_tx["fee_rate_sat_vb"].iloc[0] == pytest.approx(100.0)
+    assert df_tx["locktime"].iloc[0] == 840001
+
+    remap = build_prefix_remap(["0123456789"], df_tx["tx_id"].tolist())
+    assert remap["0123456789"] == "0123456789abcdef0123456789abcdef"
+
+
 

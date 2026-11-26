@@ -52,50 +52,27 @@ class ForensicExplainer:
         except Exception as e:
             self.explainer = None
 
-    def explain_transaction(
+    def _build_explanation_record(
         self,
         X_row: pd.Series,
-        meta_row: pd.Series
+        meta_row: pd.Series,
+        shap_vals: np.ndarray,
     ) -> Dict[str, Any]:
-        """
-        Computes SHAP feature importance for a single transaction and generates
-        a human-readable forensic explanation narrative.
-        """
-        row_df = pd.DataFrame([X_row])
-
-        if self.explainer is not None:
-            try:
-                raw_shap = self.explainer.shap_values(row_df)
-                if isinstance(raw_shap, list):
-                    vals = np.array(raw_shap[0][0])
-                elif isinstance(raw_shap, np.ndarray):
-                    vals = raw_shap[0] if raw_shap.ndim > 1 else raw_shap
-                else:
-                    vals = np.zeros(len(self.feature_names))
-            except Exception:
-                vals = np.zeros(len(self.feature_names))
-        else:
-            vals = np.zeros(len(self.feature_names))
-
-        # Build feature attribution list
-        # For IsolationForest, negative SHAP values often pull toward anomalies.
-        # We sort by absolute magnitude of impact.
+        """Constructs a structured SHAP attribution and narrative record from precomputed values."""
         impacts = []
-        for feat_name, shap_val in zip(self.feature_names, vals):
+        for feat_name, shap_val in zip(self.feature_names, shap_vals):
             raw_val = X_row.get(feat_name, 0.0)
             impacts.append({
                 "feature": feat_name,
                 "label": FEATURE_LABELS.get(feat_name, feat_name),
                 "value": float(raw_val),
                 "shap_impact": float(shap_val),
-                "abs_impact": abs(float(shap_val))
+                "abs_impact": abs(float(shap_val)),
             })
 
-        # Sort top drivers
         impacts.sort(key=lambda x: x["abs_impact"], reverse=True)
         top_drivers = impacts[:5]
 
-        # Generate evidence narrative
         score = float(meta_row.get("anomaly_score", 50.0))
         tier = str(meta_row.get("risk_tier", "NORMAL"))
         pattern = str(meta_row.get("forensic_pattern", "BENIGN_PROFILE"))
@@ -103,37 +80,51 @@ class ForensicExplainer:
 
         narrative_bullets: List[str] = []
 
-        if tier in ("CRITICAL", "HIGH"):
-            # Check pattern specifics
-            if pattern == "RANSOMWARE_FANOUT":
+        if tier in ("CRITICAL", "HIGH", "MEDIUM"):
+            if pattern == "DUSTING_ATTACK":
                 narrative_bullets.append(
-                    f"Rapid fan-out detected: 1 input splits into {int(X_row.get('output_count', 0))} micro-outputs, consistent with automated extortion money-mule distribution."
+                    f"Dusting fingerprint: micro-principal ({float(X_row.get('amount_btc', 0)):.8f} BTC) split across {int(X_row.get('output_count', 0))} targets to deanonymize UTXO clusters."
+                )
+            elif pattern == "RANSOMWARE_FANOUT":
+                narrative_bullets.append(
+                    f"Rapid fan-out detected: {int(X_row.get('input_count', 1))} input(s) split into {int(X_row.get('output_count', 0))} outputs, consistent with automated extortion distribution."
                 )
             elif pattern == "COINJOIN_MIXER":
                 narrative_bullets.append(
-                    f"CoinJoin / Tumbler signature: {int(X_row.get('input_count', 0))} inputs unified into equalized denomination outputs, obfuscating UTXO provenance."
+                    f"CoinJoin / Tumbler signature: {int(X_row.get('input_count', 0))} inputs unified into {int(X_row.get('output_count', 0))} outputs, obfuscating UTXO provenance."
+                )
+            elif pattern == "UTXO_CONSOLIDATION_SWEEP":
+                narrative_bullets.append(
+                    f"High fan-in UTXO sweep: {int(X_row.get('input_count', 0))} fragmented inputs consolidated into {int(X_row.get('output_count', 1))} destination address(es)."
                 )
             elif pattern == "PEELING_CHAIN":
                 narrative_bullets.append(
-                    "Peeling chain flow: Repeated single-input dual-output peel where residual change is passed forward while siphoning funds."
+                    "Peeling chain flow: single-input dual-output structure siphoning funds while passing high-value residual change forward."
                 )
             elif pattern == "BULLETPROOF_RELAY_BURST":
                 narrative_bullets.append(
                     f"Origin traced to high-risk bulletproof hosting ASN ({meta_row.get('earliest_asn')}) from IP {meta_row.get('earliest_ip')}."
                 )
-
-            # Add data-driven observations
-            if X_row.get("fee_rate_sat_vb", 0) > 100:
+            elif pattern == "HIGH_FEE_SURGE":
                 narrative_bullets.append(
-                    f"Abnormally high fee density: {X_row.get('fee_rate_sat_vb'):.1f} sat/vB paid for priority block inclusion."
+                    f"Urgent priority fee surge ({float(X_row.get('fee_rate_sat_vb', 0)):.1f} sat/vB) typical of rapid illicit fund evacuation."
                 )
-            if X_row.get("is_tor_proxy", 0) == 1.0 or meta_row.get("is_tor_proxy_origin"):
+            elif pattern == "WHALE_TRANSFER_ANOMALY":
+                narrative_bullets.append(
+                    f"High-magnitude principal movement ({float(X_row.get('amount_btc', 0)):.4f} BTC) far above baseline ledger volume."
+                )
+
+            if float(X_row.get("fee_rate_sat_vb", 0)) > 100 and pattern != "HIGH_FEE_SURGE":
+                narrative_bullets.append(
+                    f"Abnormally high fee density: {float(X_row.get('fee_rate_sat_vb', 0)):.1f} sat/vB paid for priority block inclusion."
+                )
+            if float(X_row.get("is_tor_proxy", 0)) == 1.0 or bool(meta_row.get("is_tor_proxy_origin", False)):
                 narrative_bullets.append(
                     f"Transaction broadcast originated from known Tor exit/anonymizer node ({meta_row.get('earliest_ip')})."
                 )
-            if X_row.get("propagation_spread_ms", 0) < 50:
+            if bool(meta_row.get("network_correlated", False)) and float(X_row.get("propagation_spread_ms", 0)) < 50:
                 narrative_bullets.append(
-                    f"Sub-50ms synchronized global network broadcast burst ({X_row.get('propagation_spread_ms'):.1f} ms spread)."
+                    f"Sub-50ms synchronized global network broadcast burst ({float(X_row.get('propagation_spread_ms', 0)):.1f} ms spread)."
                 )
 
             if not narrative_bullets:
@@ -161,10 +152,33 @@ class ForensicExplainer:
             "all_impacts": impacts,
             "narrative_bullets": narrative_bullets,
             "summary_text": summary_text,
-            "investigator_disclaimer": "Risk scores are heuristic indicators for prioritizing forensic triage, not definitive legal proof of illicit activity."
+            "investigator_disclaimer": "Risk scores are heuristic indicators for prioritizing forensic triage, not definitive legal proof of illicit activity.",
         }
 
-    def generate_waterfall_figure(self, exp: Dict[str, Any]):
+    def explain_transaction(
+        self,
+        X_row: pd.Series,
+        meta_row: pd.Series
+    ) -> Dict[str, Any]:
+        """
+        Computes SHAP feature importance for a single transaction and generates
+        a human-readable forensic explanation narrative.
+        """
+        row_df = pd.DataFrame([X_row[self.feature_names]])
+        vals = np.zeros(len(self.feature_names))
+        if self.explainer is not None:
+            try:
+                raw_shap = self.explainer.shap_values(row_df)
+                if isinstance(raw_shap, list):
+                    vals = np.array(raw_shap[0][0])
+                elif isinstance(raw_shap, np.ndarray):
+                    vals = raw_shap[0] if raw_shap.ndim > 1 else raw_shap
+            except Exception:
+                pass
+        return self._build_explanation_record(X_row, meta_row, vals)
+
+    @staticmethod
+    def generate_waterfall_figure(exp: Dict[str, Any]):
         """
         Generates an interactive Plotly Waterfall figure of SHAP feature contributions.
         """
@@ -214,14 +228,37 @@ class ForensicExplainer:
         scored_df: pd.DataFrame
     ) -> List[Dict[str, Any]]:
         """
-        Batch computes forensic explanations for all transactions.
+        Batch computes forensic explanations for all transactions using true X alignment
+        and vectorized SHAP tree evaluation.
         """
+        if scored_df.empty:
+            return []
+
+        if "_feature_row_pos" in scored_df.columns:
+            positions = scored_df["_feature_row_pos"].astype(int).tolist()
+            X_aligned = X.iloc[positions].reset_index(drop=True)
+        else:
+            X_aligned = X.iloc[:len(scored_df)].reset_index(drop=True)
+
+        shap_matrix = np.zeros((len(scored_df), len(self.feature_names)))
+        if self.explainer is not None:
+            try:
+                raw_shap = self.explainer.shap_values(X_aligned[self.feature_names])
+                if isinstance(raw_shap, list):
+                    shap_matrix = np.asarray(raw_shap[0])
+                elif isinstance(raw_shap, np.ndarray):
+                    shap_matrix = raw_shap if raw_shap.ndim > 1 else raw_shap.reshape(1, -1)
+            except Exception:
+                pass
+
         explanations = []
         for idx in range(len(scored_df)):
-            row_meta = scored_df.iloc[idx]
-            tx_id = row_meta["tx_id"]
-            row_x = X.loc[X.index == idx].iloc[0] if idx in X.index else X.iloc[0]
-            exp = self.explain_transaction(row_x, row_meta)
-            explanations.append(exp)
+            explanations.append(
+                self._build_explanation_record(
+                    X_aligned.iloc[idx],
+                    scored_df.iloc[idx],
+                    shap_matrix[idx],
+                )
+            )
         return explanations
 

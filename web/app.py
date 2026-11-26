@@ -12,20 +12,23 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import hashlib
+import html as html_lib
 import io
 import json
+import pickle
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit.components.v1 as components
 
 from blocktrace.ingestion import (
     parse_transactions,
     parse_network_logs,
     validate_forensic_data,
 )
+from blocktrace.ingestion.parsers import build_prefix_remap, normalize_tx_id
 from blocktrace.correlation import CorrelationEngine, OriginTracer, NetworkClusterer
 from blocktrace.ml import (
     extract_forensic_features,
@@ -60,6 +63,19 @@ st.set_page_config(
 st.markdown(get_custom_css(), unsafe_allow_html=True)
 
 
+NAV_OPTIONS = [
+    "🛰️ Telemetry & Mission Control",
+    "📂 Data Ingestion & Quality",
+    "🔗 Correlation Engine",
+    "🧠 AI Anomaly & SHAP (XAI)",
+    "🕸️ Interactive Graph Forensics",
+    "📊 Deep Analytics Dashboard",
+    "🌐 Global Threat Intelligence",
+    "🔀 Transaction Comparison",
+    "📋 Case Dossier & Export",
+]
+
+
 # Initialize Session State
 def init_session_state():
     if "case_manager" not in st.session_state:
@@ -77,14 +93,41 @@ def init_session_state():
         st.session_state.dataset_source = "No dataset loaded"
     if "uploader_nonce" not in st.session_state:
         st.session_state.uploader_nonce = 0
-    if "processed" not in st.session_state:
-        st.session_state.processed = False
+    if "nav_radio" not in st.session_state:
+        st.session_state.nav_radio = "📂 Data Ingestion & Quality"
 
 
 init_session_state()
 
 
-# Core Processing Pipeline (Cached)
+def _jump_to_tx(module: str, tx_id: str):
+    """Callback for deep-linking from alerts directly into SHAP or Origin Trace."""
+    st.session_state.nav_radio = module
+    st.session_state.inspect_tx_select = tx_id
+    st.session_state.origin_tx_select = tx_id
+
+
+def _load_sample_kit_cb(sample_tx_path: str, sample_net_path: str):
+    """Callback to load the bundled 1,000-entry forensic test dataset and switch to Mission Control."""
+    df_tx = parse_transactions(sample_tx_path)
+    df_net = parse_network_logs(sample_net_path)
+    st.session_state.df_tx = df_tx
+    st.session_state.df_net = df_net
+    st.session_state.dataset_source = f"1,000 Forensic Records Test Kit ({len(df_tx):,} Txs, {len(df_net):,} Logs)"
+    st.session_state.nav_radio = "🛰️ Telemetry & Mission Control"
+
+
+def _hash_dataframe(df: pd.DataFrame) -> str:
+    """Fast deterministic hash for DataFrames containing list-typed address columns."""
+    return hashlib.blake2b(pickle.dumps(df, protocol=pickle.HIGHEST_PROTOCOL), digest_size=16).hexdigest()
+
+
+# Core Processing Pipeline (Cached across widget interactions & module switches)
+@st.cache_data(
+    max_entries=8,
+    hash_funcs={pd.DataFrame: _hash_dataframe},
+    show_spinner="Running cross-source correlation, Isolation Forest & SHAP explainability...",
+)
 def process_data(df_tx, df_net, contamination=0.08, n_estimators=150):
     correlator = CorrelationEngine()
     df_corr = correlator.correlate(df_tx, df_net)
@@ -108,16 +151,23 @@ def process_data(df_tx, df_net, contamination=0.08, n_estimators=150):
         "df_corr": df_corr,
         "summary": summary,
         "X": X,
-        "detector": detector,
         "scored_df": scored_df,
-        "explainer": explainer,
         "explanations": explanations,
         "exp_dict": exp_dict,
         "G": G,
         "graph_metrics": graph_metrics,
-        "correlator": correlator,
         "analyzer": analyzer,
     }
+
+
+@st.cache_data(max_entries=16, hash_funcs={pd.DataFrame: _hash_dataframe}, show_spinner=False)
+def cached_validate(df_tx, df_net):
+    return validate_forensic_data(df_tx, df_net)
+
+
+@st.cache_data(max_entries=16, hash_funcs={pd.DataFrame: _hash_dataframe}, show_spinner=False)
+def cached_wallet_profiles(scored_df):
+    return build_wallet_risk_profiles(scored_df)
 
 
 # Sidebar Navigation & System Telemetry
@@ -136,18 +186,8 @@ with st.sidebar:
 
     nav_choice = st.radio(
         "Investigation Module",
-        [
-            "🛰️ Telemetry & Mission Control",
-            "📂 Data Ingestion & Quality",
-            "🔗 Correlation Engine",
-            "🧠 AI Anomaly & SHAP (XAI)",
-            "🕸️ Interactive Graph Forensics",
-            "📊 Deep Analytics Dashboard",
-            "🌐 Global Threat Intelligence",
-            "🔀 Transaction Comparison",
-            "📋 Case Dossier & Export",
-        ],
-        index=0 if st.session_state.df_tx is not None else 1,
+        NAV_OPTIONS,
+        key="nav_radio",
     )
 
     st.markdown("---")
@@ -204,7 +244,7 @@ st.markdown(
                 <span class="badge-airgap">OFFLINE LAB</span>
             </div>
             <div class="hero-subtitle">
-                Autonomous Bitcoin Blockchain & P2P Network Telemetry Forensic Intelligence
+                Autonomous Bitcoin Blockchain &amp; P2P Network Telemetry Forensic Intelligence
             </div>
         </div>
         <div class="hero-tags">
@@ -212,7 +252,7 @@ st.markdown(
                 <span class="status-dot"></span> AIR-GAP ACTIVE
             </div>
             <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:#38bdf8; background:#0f172a; padding:5px 12px; border-radius:8px; border:1px solid #1e293b;">
-                CASE: {st.session_state.case_manager.case_id}
+                CASE: {html_lib.escape(st.session_state.case_manager.case_id)}
             </span>
         </div>
     </div>
@@ -252,14 +292,17 @@ def render_empty_dataset_notice():
             st.markdown("<hr style='margin:12px 0; border-color:#1e293b;'>", unsafe_allow_html=True)
             qc1, qc2 = st.columns([2, 1], vertical_alignment="bottom")
             with qc1:
-                st.markdown("**⚡ Quick Test Kit (1,000 Transactions & 3,101 Network Logs)**")
-                st.caption("Pre-generated realistic dataset containing CoinJoin mixing, peeling chains, UTXO sweeps, and Tor relays.")
+                st.markdown("**⚡ Quick Test Kit (1,000 Transactions + P2P Network Telemetry)**")
+                st.caption("Pre-generated realistic dataset containing CoinJoin mixing, peeling chains, UTXO sweeps, dusting, and Tor relays.")
             with qc2:
-                if st.button("🚀 1-Click Load 1,000 Sample Records", width="stretch", type="primary"):
-                    st.session_state.df_tx = parse_transactions(sample_tx)
-                    st.session_state.df_net = parse_network_logs(sample_net)
-                    st.session_state.dataset_source = "1,000 Forensic Records Test Kit (1,000 Txs, 3,101 Logs)"
-                    st.rerun()
+                st.button(
+                    "🚀 1-Click Load 1,000 Sample Records",
+                    width="stretch",
+                    type="primary",
+                    key="empty_notice_load_btn",
+                    on_click=_load_sample_kit_cb,
+                    args=(sample_tx, sample_net),
+                )
 
         st.info("💡 Head to the **📂 Data Ingestion & Quality** module in the sidebar to upload or download custom files.")
 
@@ -394,7 +437,11 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
                 font_color="#f8fafc",
                 margin=dict(t=20, b=20, l=20, r=20),
             )
-            st.plotly_chart(fig_pie, width="stretch")
+            st.plotly_chart(
+                fig_pie,
+                width="stretch",
+                alt="Donut chart of forensic risk tier counts across analyzed transactions",
+            )
 
     with chart_col2:
         with st.container(border=True):
@@ -417,7 +464,11 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
                 yaxis=dict(gridcolor="#1e293b"),
                 margin=dict(t=20, b=20, l=20, r=20),
             )
-            st.plotly_chart(fig_scatter, width="stretch")
+            st.plotly_chart(
+                fig_scatter,
+                width="stretch",
+                alt="Scatter plot of Bitcoin transaction volume against Isolation Forest forensic risk score",
+            )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -430,15 +481,15 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
         if high_risks.empty:
             st.success("✅ No CRITICAL or HIGH risk alerts detected in this dataset.")
         else:
-            for _, alert in high_risks.iterrows():
-                tx_id = alert["tx_id"]
-                tier = alert["risk_tier"]
-                score = alert["anomaly_score"]
-                pattern = alert["forensic_pattern"].replace("_", " ")
-                vol = alert["amount_btc"]
-                ip = alert["earliest_ip"]
-                asn = alert["earliest_asn"]
-                country = alert["earliest_country"]
+            for idx, alert in high_risks.iterrows():
+                tx_id = str(alert["tx_id"])
+                tier = str(alert["risk_tier"])
+                score = float(alert["anomaly_score"])
+                pattern = str(alert["forensic_pattern"]).replace("_", " ")
+                vol = float(alert["amount_btc"])
+                ip = str(alert["earliest_ip"])
+                asn = str(alert["earliest_asn"])
+                country = str(alert["earliest_country"])
 
                 badge_cls = "badge-critical" if tier == "CRITICAL" else "badge-high"
 
@@ -447,19 +498,32 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
                     <div class="alert-card" style="border-left: 4px solid {'#ef4444' if tier == 'CRITICAL' else '#f97316'};">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div>
-                                <span class="{badge_cls}">{tier} ALERT</span>
-                                <strong style="color:#f8fafc; margin-left:10px; font-size:1.05rem;">{pattern}</strong>
+                                <span class="{badge_cls}">{html_lib.escape(tier)} ALERT</span>
+                                <strong style="color:#f8fafc; margin-left:10px; font-size:1.05rem;">{html_lib.escape(pattern)}</strong>
                                 <span style="color:#9ca3af; font-size:0.85rem; margin-left:8px;">(Risk Score: {score:.1f}/100)</span>
                             </div>
                             <div style="color:#38bdf8; font-weight:800; font-size:1.15rem; font-family:'JetBrains Mono';">{vol:.4f} BTC</div>
                         </div>
                         <div style="font-family:'JetBrains Mono', monospace; font-size:0.8rem; color:#94a3b8; margin-top:8px;">
-                            TX: <code style="color:#38bdf8;">{tx_id}</code> &nbsp;•&nbsp; Origin IP: <strong>{ip}</strong> ({country}, {asn}) &nbsp;•&nbsp; Fee Rate: {alert['fee_rate_sat_vb']:.1f} sat/vB
+                            TX: <code style="color:#38bdf8;">{html_lib.escape(tx_id)}</code> &nbsp;•&nbsp; Origin IP: <strong>{html_lib.escape(ip)}</strong> ({html_lib.escape(country)}, {html_lib.escape(asn)}) &nbsp;•&nbsp; Fee Rate: {float(alert['fee_rate_sat_vb']):.1f} sat/vB
                         </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
+                with st.container(horizontal=True):
+                    st.button(
+                        "🔬 Inspect SHAP",
+                        key=f"jump_shap_{idx}",
+                        on_click=_jump_to_tx,
+                        args=("🧠 AI Anomaly & SHAP (XAI)", tx_id),
+                    )
+                    st.button(
+                        "🔗 Trace Origin",
+                        key=f"jump_orig_{idx}",
+                        on_click=_jump_to_tx,
+                        args=("🔗 Correlation Engine", tx_id),
+                    )
 
 
 # -----------------------------------------------------------------------------
@@ -478,12 +542,14 @@ elif nav_choice == "📂 Data Ingestion & Quality":
             st.caption("Need sample data to test the platform? Download the generated 1,000-entry dataset or load it with 1 click:")
             q1, q2, q3 = st.columns([2, 1, 1], vertical_alignment="bottom")
             with q1:
-                if st.button("🚀 1-Click Load 1,000 Test Records", width="stretch", type="primary"):
-                    st.session_state.df_tx = parse_transactions(sample_tx_path)
-                    st.session_state.df_net = parse_network_logs(sample_net_path)
-                    st.session_state.dataset_source = "1,000 Forensic Records Test Kit (1,000 Txs, 3,101 Logs)"
-                    st.success("Successfully loaded 1,000 transactions & 3,101 network logs!")
-                    st.rerun()
+                st.button(
+                    "🚀 1-Click Load 1,000 Test Records",
+                    width="stretch",
+                    type="primary",
+                    key="tab2_load_sample_btn",
+                    on_click=_load_sample_kit_cb,
+                    args=(sample_tx_path, sample_net_path),
+                )
             with q2:
                 with open(sample_tx_path, "rb") as f_tx:
                     st.download_button(
@@ -587,12 +653,14 @@ elif nav_choice == "📂 Data Ingestion & Quality":
                 st.dataframe(
                     st.session_state.df_net.head(25),
                     width="stretch",
+                    hide_index=True,
+                    alt="Preview of first 25 ingested P2P network observation logs",
                 )
     else:
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown("#### 📋 Forensic Data Quality Report")
-            val_report = validate_forensic_data(st.session_state.df_tx, st.session_state.df_net)
+            val_report = cached_validate(st.session_state.df_tx, st.session_state.df_net)
 
             q1, q2, q3, q4 = st.columns(4)
             with q1:
@@ -609,9 +677,11 @@ elif nav_choice == "📂 Data Ingestion & Quality":
                     st.warning(f"⚠️ {w}")
 
             if has_net:
-                tx_ids_set = set(st.session_state.df_tx["tx_id"])
-                net_ids_set = set(st.session_state.df_net["tx_id"])
-                direct_matches = tx_ids_set.intersection(net_ids_set)
+                tx_ids_set = set(st.session_state.df_tx["tx_id"].apply(normalize_tx_id))
+                net_norm = st.session_state.df_net["tx_id"].apply(normalize_tx_id)
+                prefix_remap = build_prefix_remap(net_norm.unique(), tx_ids_set)
+                net_effective = net_norm.replace(prefix_remap) if prefix_remap else net_norm
+                direct_matches = tx_ids_set.intersection(set(net_effective))
 
                 if len(direct_matches) == 0:
                     st.error("⚠️ Network Observation Log transaction IDs do not match the loaded Bitcoin Transactions!")
@@ -638,32 +708,57 @@ elif nav_choice == "📂 Data Ingestion & Quality":
                         st.success(f"Aligned {len(df_net_aligned)} network observation logs across {len(tx_ids_list)} transactions!")
                         st.rerun()
                 else:
+                    match_note = f" (including {len(prefix_remap)} prefix-aligned hashes)" if prefix_remap else ""
                     st.success(
-                        f"✅ **{len(direct_matches)} of {len(tx_ids_set)}** transactions matched with network observation logs "
+                        f"✅ **{len(direct_matches)} of {len(tx_ids_set)}** transactions matched with network observation logs{match_note} "
                         f"({len(direct_matches) / max(len(tx_ids_set), 1) * 100.0:.1f}% coverage)."
                     )
 
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown(f"#### 🔍 Ingested Transactions Preview :blue-badge[{len(st.session_state.df_tx):,} Rows]")
+            tx_preview_cols = [
+                c for c in [
+                    "tx_id", "timestamp", "block_height", "amount_btc",
+                    "fee_rate_sat_vb", "input_count", "output_count", "is_rbf"
+                ]
+                if c in st.session_state.df_tx.columns
+            ]
             st.dataframe(
-                st.session_state.df_tx.head(25),
+                st.session_state.df_tx[tx_preview_cols].head(25),
                 width="stretch",
+                hide_index=True,
+                column_config={
+                    "tx_id": st.column_config.TextColumn("Transaction Hash", width="medium"),
+                    "amount_btc": st.column_config.NumberColumn("Amount (BTC)", format="%.6f"),
+                    "fee_rate_sat_vb": st.column_config.NumberColumn("Fee (sat/vB)", format="%.1f"),
+                    "is_rbf": st.column_config.CheckboxColumn("RBF"),
+                },
+                alt="Preview of first 25 ingested Bitcoin transaction records",
             )
 
         if has_net:
             with st.container(border=True):
                 st.markdown(f"#### 🔍 Ingested Network Logs Preview :purple-badge[{len(st.session_state.df_net):,} Rows]")
                 preview_net = st.session_state.df_net.head(25).copy()
-                tx_ids_set = set(st.session_state.df_tx["tx_id"])
+                tx_ids_set = set(st.session_state.df_tx["tx_id"].apply(normalize_tx_id))
+                net_head_norm = preview_net["tx_id"].apply(normalize_tx_id)
+                prefix_remap = build_prefix_remap(net_head_norm.unique(), tx_ids_set)
+                net_head_eff = net_head_norm.replace(prefix_remap) if prefix_remap else net_head_norm
                 preview_net.insert(
                     0,
                     "correlation_status",
-                    preview_net["tx_id"].apply(lambda tid: "✅ Matched" if tid in tx_ids_set else "⚠️ Unmatched")
+                    net_head_eff.apply(lambda tid: "✅ Matched" if tid in tx_ids_set else "⚠️ Unmatched"),
                 )
                 st.dataframe(
                     preview_net,
                     width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "correlation_status": st.column_config.TextColumn("Match Status"),
+                        "latency_ms": st.column_config.NumberColumn("Latency (ms)", format="%.1f"),
+                    },
+                    alt="Preview of first 25 ingested P2P network observation logs with match status",
                 )
         else:
             st.info("No network observation logs loaded yet.")
@@ -702,10 +797,12 @@ elif nav_choice == "🔗 Correlation Engine":
         st.markdown("#### 🎯 Broadcast Origin Inspector")
         st.caption("Select any transaction hash to trace its earliest peer observation, identify broadcast relay, and inspect hop latency:")
         tx_options = scored_df["tx_id"].tolist()
+        if st.session_state.get("origin_tx_select") not in tx_options and tx_options:
+            st.session_state.origin_tx_select = tx_options[0]
         selected_tx = st.selectbox(
             "Select Transaction Hash:",
             tx_options,
-            index=0,
+            key="origin_tx_select",
             label_visibility="collapsed",
         )
 
@@ -729,15 +826,15 @@ elif nav_choice == "🔗 Correlation Engine":
                 <div style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:12px 18px; margin:12px 0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
                         <span style="color:#64748b; font-size:0.75rem; font-weight:700; text-transform:uppercase;">First Observed UTC</span><br>
-                        <code style="color:#38bdf8; font-size:0.85rem;">{origin_info.get('first_observed_utc', 'N/A')}</code>
+                        <code style="color:#38bdf8; font-size:0.85rem;">{html_lib.escape(str(origin_info.get('first_observed_utc', 'N/A')))}</code>
                     </div>
                     <div>
                         <span style="color:#64748b; font-size:0.75rem; font-weight:700; text-transform:uppercase;">Propagation Timing</span><br>
-                        <strong style="color:#f8fafc; font-size:0.95rem;">{origin_info.get('total_propagation_ms', 0):.1f} ms total spread</strong>
+                        <strong style="color:#f8fafc; font-size:0.95rem;">{float(origin_info.get('total_propagation_duration_ms', 0.0)):.1f} ms total spread</strong>
                     </div>
                     <div>
                         <span style="color:#64748b; font-size:0.75rem; font-weight:700; text-transform:uppercase;">Client User-Agent</span><br>
-                        <span style="color:#cbd5e1; font-size:0.85rem; font-family:'JetBrains Mono';">{origin_info.get('user_agent', 'N/A')}</span>
+                        <span style="color:#cbd5e1; font-size:0.85rem; font-family:'JetBrains Mono';">{html_lib.escape(str(origin_info.get('user_agent', 'N/A')))}</span>
                     </div>
                 </div>
                 """,
@@ -748,13 +845,20 @@ elif nav_choice == "🔗 Correlation Engine":
             df_timeline = pd.DataFrame(origin_info["timeline"])
             if not df_timeline.empty:
                 df_timeline["hop_label"] = df_timeline["hop_order"].apply(
-                    lambda h: f"Hop {h} (Origin)" if h == 0 else f"Hop {h} (Relay)"
+                    lambda h: f"Hop {h} (Origin)" if h == 1 else f"Hop {h} (Relay)"
                 )
                 display_cols = ["hop_label", "delta_ms", "ip_address", "country", "asn", "event_type", "latency_ms"]
                 available_cols = [c for c in display_cols if c in df_timeline.columns]
                 st.dataframe(
                     df_timeline[available_cols],
                     width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "hop_label": st.column_config.TextColumn("Hop"),
+                        "delta_ms": st.column_config.NumberColumn("Offset (ms)", format="%.1f"),
+                        "latency_ms": st.column_config.NumberColumn("Relay Latency (ms)", format="%.1f"),
+                    },
+                    alt="P2P hop-by-hop propagation timeline for the selected transaction",
                 )
         else:
             st.info("No matching network observations found for this transaction ID.")
@@ -771,6 +875,13 @@ elif nav_choice == "🔗 Correlation Engine":
             st.dataframe(
                 df_clusters[["cluster_key", "tx_count", "total_amount_btc", "country", "asn", "is_anonymizer", "risk_flag"]],
                 width="stretch",
+                hide_index=True,
+                column_config={
+                    "cluster_key": st.column_config.TextColumn("Origin IP"),
+                    "total_amount_btc": st.column_config.NumberColumn("Total Volume (BTC)", format="%.4f"),
+                    "is_anonymizer": st.column_config.CheckboxColumn("Anonymizer"),
+                },
+                alt="Transaction clusters aggregated by earliest broadcast IP address",
             )
         else:
             st.info("No origin IP clusters detected in this dataset.")
@@ -816,6 +927,21 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                 "amount_btc", "fee_rate_sat_vb", "earliest_ip", "earliest_asn", "earliest_country"
             ]],
             width="stretch",
+            hide_index=True,
+            column_config={
+                "risk_rank": st.column_config.NumberColumn("Rank", format="#%d", width="small"),
+                "risk_tier": st.column_config.TextColumn("Tier"),
+                "anomaly_score": st.column_config.ProgressColumn(
+                    "Risk Score",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f",
+                    color="auto-inverse",
+                ),
+                "amount_btc": st.column_config.NumberColumn("Volume (BTC)", format="%.4f"),
+                "fee_rate_sat_vb": st.column_config.NumberColumn("sat/vB", format="%.1f"),
+            },
+            alt="Ranked table of transactions matching active forensic anomaly filters",
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -824,7 +950,14 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
         st.caption("Inspect individual feature contributions and mathematical decision paths:")
 
         if not filtered_df.empty:
-            inspect_tx = st.selectbox("Select Alert to Inspect Evidence:", filtered_df["tx_id"].tolist(), index=0)
+            inspect_options = filtered_df["tx_id"].tolist()
+            if st.session_state.get("inspect_tx_select") not in inspect_options:
+                st.session_state.inspect_tx_select = inspect_options[0]
+            inspect_tx = st.selectbox(
+                "Select Alert to Inspect Evidence:",
+                inspect_options,
+                key="inspect_tx_select",
+            )
             exp = exp_dict.get(inspect_tx)
             alert_row = scored_df[scored_df["tx_id"] == inspect_tx].iloc[0]
 
@@ -844,7 +977,7 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                     f"""
                     <div class="forensic-narrative">
                         <strong>Forensic Rationale:</strong><br>
-                        {exp['summary_text']}
+                        {html_lib.escape(exp['summary_text'])}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -860,12 +993,16 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                     ["Waterfall Plot (Decision Shift)", "Horizontal Impact Ranking"],
                     default="Waterfall Plot (Decision Shift)",
                     key="shap_plot_style"
-                )
+                ) or "Waterfall Plot (Decision Shift)"
 
                 if plot_style == "Waterfall Plot (Decision Shift)":
-                    fig_wf = results["explainer"].generate_waterfall_figure(exp)
+                    fig_wf = ForensicExplainer.generate_waterfall_figure(exp)
                     if fig_wf:
-                        st.plotly_chart(fig_wf, width="stretch")
+                        st.plotly_chart(
+                            fig_wf,
+                            width="stretch",
+                            alt="SHAP waterfall chart showing top feature contributions for this alert",
+                        )
                     else:
                         st.info("Waterfall plot unavailable for this item.")
                 else:
@@ -877,7 +1014,7 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                         color="abs_impact",
                         color_continuous_scale="Reds",
                         labels={"abs_impact": "|SHAP Impact| (Anomaly Contribution)", "label": "Feature"},
-                        hover_data=["value"],
+                        hover_data=["value", "shap_impact"],
                     )
                     fig_shap.update_layout(
                         paper_bgcolor="#0b0f19",
@@ -886,7 +1023,11 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                         yaxis=dict(autorange="reversed"),
                         margin=dict(t=20, b=20, l=20, r=20),
                     )
-                    st.plotly_chart(fig_shap, width="stretch")
+                    st.plotly_chart(
+                        fig_shap,
+                        width="stretch",
+                        alt="Horizontal bar ranking of top SHAP feature importances",
+                    )
 
             # Action: Bookmark to Case Dossier
             with st.container(border=True):
@@ -910,13 +1051,15 @@ elif nav_choice == "🧠 AI Anomaly & SHAP (XAI)":
                         st.success(f"Bookmarked {inspect_tx[:12]}... into Case Dossier!")
 
             st.markdown(
-                f"""
+                """
                 <div class="forensic-disclaimer">
-                    <strong>Safety & Reliability Protocol:</strong> All anomaly scores are probabilistic risk indicators to assist human investigators in prioritizing forensic review. They do not constitute sole proof of crime.
+                    <strong>Safety &amp; Reliability Protocol:</strong> All anomaly scores are probabilistic risk indicators to assist human investigators in prioritizing forensic review. They do not constitute sole proof of crime.
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+        else:
+            st.info("No transactions match the current filter criteria. Lower the **Minimum Forensic Score** or select **ALL** tiers above.")
 
 
 # -----------------------------------------------------------------------------
@@ -948,7 +1091,7 @@ elif nav_choice == "🕸️ Interactive Graph Forensics":
                 "Visualization Engine",
                 ["Interactive Physics Canvas (PyVis)", "Plotly 2D Graph"],
                 default="Interactive Physics Canvas (PyVis)",
-            )
+            ) or "Interactive Physics Canvas (PyVis)"
         with g_ctrl2:
             graph_tier_filter = st.selectbox("Graph Risk Filter", ["ALL", "CRITICAL", "HIGH", "MEDIUM"], index=0)
         with g_ctrl3:
@@ -960,34 +1103,86 @@ elif nav_choice == "🕸️ Interactive Graph Forensics":
         if render_engine == "Interactive Physics Canvas (PyVis)":
             st.caption("Drag nodes, zoom, pan, and hover over entities to inspect forensic metadata.")
             pyvis_html = viz.generate_pyvis_html(G, filter_tier=graph_tier_filter, max_nodes=max_graph_nodes, height="620px")
-            components.html(pyvis_html, height=640, scrolling=False)
+            st.iframe(
+                pyvis_html,
+                height=640,
+                alt="Interactive PyVis physics network graph linking Bitcoin wallets, transactions, and origin IPs",
+            )
         else:
             plotly_fig = viz.generate_plotly_figure(G, filter_tier=graph_tier_filter, max_nodes=max_graph_nodes)
-            st.plotly_chart(plotly_fig, width="stretch")
+            st.plotly_chart(
+                plotly_fig,
+                width="stretch",
+                alt="2D Plotly network graph of Bitcoin wallets, transactions, and origin IPs",
+            )
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container(border=True):
-        st.markdown("#### 🕵️ Wallets & Path Tracing")
-        st.caption("Perform BFS shortest path discovery between suspicious source and destination addresses:")
-        path_col1, path_col2, path_col3 = st.columns([3, 3, 2], vertical_alignment="bottom")
-
+        st.markdown("#### 🕵️ Wallets, Flow Path & Peeling Chain Tracer")
         addr_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "address"]
         if addr_nodes:
-            with path_col1:
-                src_addr = st.selectbox("Source Address (Inflow)", addr_nodes, index=0)
-            with path_col2:
-                tgt_addr = st.selectbox("Target Address (Outflow)", addr_nodes, index=min(1, len(addr_nodes) - 1))
-            with path_col3:
-                find_path_btn = st.button("🔎 Trace Flow Path", width="stretch", type="primary")
+            trace_mode = st.segmented_control(
+                "Trace Mode",
+                ["BFS Shortest Flow Path", "Peeling Chain Auto-Tracer"],
+                default="BFS Shortest Flow Path",
+                key="graph_trace_mode",
+            ) or "BFS Shortest Flow Path"
 
-            if find_path_btn:
-                path = analyzer.find_flow_path(G, src_addr, tgt_addr)
-                if path:
-                    st.success(f"Found Directed Flow Path ({len(path)} hops):")
-                    hop_chips = " &nbsp;➔&nbsp; ".join([f"<code style='color:#38bdf8; background:#0f172a; padding:4px 8px; border-radius:6px; border:1px solid #1e293b;'>{n[:12]}...</code>" for n in path])
-                    st.markdown(f"<div style='margin-top:10px;'>{hop_chips}</div>", unsafe_allow_html=True)
-                else:
-                    st.info("No direct transfer path found between these two addresses.")
+            if trace_mode == "BFS Shortest Flow Path":
+                st.caption("Discover shortest directed fund transfer paths between suspicious source and destination wallets:")
+                path_col1, path_col2, path_col3 = st.columns([3, 3, 2], vertical_alignment="bottom")
+                with path_col1:
+                    src_addr = st.selectbox("Source Address (Inflow)", addr_nodes, index=0)
+                with path_col2:
+                    tgt_addr = st.selectbox("Target Address (Outflow)", addr_nodes, index=min(1, len(addr_nodes) - 1))
+                with path_col3:
+                    find_path_btn = st.button("🔎 Trace Flow Path", width="stretch", type="primary")
+
+                if find_path_btn:
+                    path = analyzer.find_flow_path(G, src_addr, tgt_addr)
+                    if path:
+                        st.success(f"Found Directed Flow Path ({len(path)} hops):")
+                        hop_chips = " &nbsp;➔&nbsp; ".join(
+                            [
+                                f"<code style='color:#38bdf8; background:#0f172a; padding:4px 8px; border-radius:6px; border:1px solid #1e293b;'>{html_lib.escape(str(n[:12]))}...</code>"
+                                for n in path
+                            ]
+                        )
+                        st.markdown(f"<div style='margin-top:10px;'>{hop_chips}</div>", unsafe_allow_html=True)
+                    else:
+                        st.info("No direct transfer path found between these two addresses.")
+            else:
+                st.caption("Trace sequential peeling hops where principal splits across successive change wallets:")
+                peel_col1, peel_col2 = st.columns([4, 1], vertical_alignment="bottom")
+                sender_addrs = [n for n, d in G.nodes(data=True) if d.get("node_type") == "address" and G.out_degree(n) > 0]
+                peel_options = sender_addrs if sender_addrs else addr_nodes
+                with peel_col1:
+                    peel_start = st.selectbox("Select Starting Suspect Wallet:", peel_options, index=0, key="peel_start_addr")
+                with peel_col2:
+                    peel_btn = st.button("🔗 Trace Peel Chain", width="stretch", type="primary")
+                if peel_btn:
+                    steps = analyzer.trace_peeling_chain(G, peel_start, max_depth=10)
+                    if steps:
+                        st.success(f"Identified {len(steps)}-hop peeling chain sequence:")
+                        peel_df = pd.DataFrame([
+                            {
+                                "Hop": s["step"],
+                                "Sender": s["sender"],
+                                "Transaction": s["tx_id"],
+                                "Amount (BTC)": round(float(s["amount_btc"]), 4),
+                                "Risk Score": round(float(s["anomaly_score"]), 1),
+                                "Receivers": len(s["receivers"]),
+                            }
+                            for s in steps
+                        ])
+                        st.dataframe(
+                            peel_df,
+                            width="stretch",
+                            hide_index=True,
+                            alt="Multi-hop peeling chain trace table",
+                        )
+                    else:
+                        st.info("No outgoing peeling steps detected from this wallet.")
         else:
             st.info("No wallet addresses available in graph.")
 
@@ -1027,7 +1222,23 @@ elif nav_choice == "📋 Case Dossier & Export":
                     "Notes": bm.notes,
                     "Timestamp": bm.added_at,
                 })
-            st.dataframe(pd.DataFrame(bm_records), width="stretch")
+            st.dataframe(
+                pd.DataFrame(bm_records),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Score": st.column_config.NumberColumn("Risk Score", format="%.1f"),
+                },
+                alt="Table of evidence entities bookmarked into the active forensic case",
+            )
+            rm_col1, rm_col2 = st.columns([3, 1], vertical_alignment="bottom")
+            with rm_col1:
+                remove_id = st.selectbox("Select Bookmark to Remove:", list(case.bookmarks.keys()), key="rm_bookmark_sel")
+            with rm_col2:
+                if st.button("🗑️ Remove Bookmark", width="stretch"):
+                    case.remove_bookmark(remove_id)
+                    st.success(f"Removed {remove_id[:12]}... from dossier.")
+                    st.rerun()
         else:
             st.info("No evidence bookmarked yet. Use the '🔖 Bookmark to Case' button in the AI Anomaly tab.")
 
@@ -1039,7 +1250,7 @@ elif nav_choice == "📋 Case Dossier & Export":
                 st.markdown(
                     f"""
                     <div style="background:#0f172a; border-left:3px solid #38bdf8; border-radius:6px; padding:8px 14px; margin-bottom:8px; font-size:0.9rem;">
-                        {n}
+                        {html_lib.escape(str(n))}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -1130,7 +1341,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
         st.caption("Distribution of transaction volumes across hours of the day correlated by forensic severity:")
         fig_heat = build_temporal_heatmap(scored_df)
         if fig_heat:
-            st.plotly_chart(fig_heat, width="stretch")
+            st.plotly_chart(fig_heat, width="stretch", alt="Temporal heatmap of transaction counts across UTC hours and risk tiers")
         else:
             st.info("Timestamp data not available for heatmap.")
 
@@ -1144,7 +1355,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
             st.caption("Multivariate signature comparison of flagged outliers vs benign baseline transactions:")
             fig_radar = build_radar_comparison(scored_df)
             if fig_radar:
-                st.plotly_chart(fig_radar, width="stretch")
+                st.plotly_chart(fig_radar, width="stretch", alt="Radar chart comparing suspicious vs normal feature averages")
             else:
                 st.info("Need both CRITICAL/HIGH and NORMAL tier transactions for radar chart.")
     with r2:
@@ -1153,7 +1364,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
             st.caption("Satoshis per virtual byte density distinguishing automated mixing from organic transfers:")
             fig_fee = build_fee_distribution_chart(scored_df)
             if fig_fee:
-                st.plotly_chart(fig_fee, width="stretch")
+                st.plotly_chart(fig_fee, width="stretch", alt="Histogram comparing fee density distribution between suspicious and normal transactions")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1163,7 +1374,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
         st.caption("Sub-second network dissemination velocity plotted against machine learning anomaly severity:")
         fig_prop = build_propagation_scatter(scored_df)
         if fig_prop:
-            st.plotly_chart(fig_prop, width="stretch")
+            st.plotly_chart(fig_prop, width="stretch", alt="Bubble scatter plot of P2P propagation spread against anomaly score")
         else:
             st.info("No network-correlated transactions available.")
 
@@ -1175,7 +1386,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
         st.caption("Hierarchical visualization of risk tiers nested into specific heuristic anomaly archetypes:")
         fig_sun = build_pattern_sunburst(scored_df)
         if fig_sun:
-            st.plotly_chart(fig_sun, width="stretch")
+            st.plotly_chart(fig_sun, width="stretch", alt="Sunburst diagram breaking down risk tiers into attack patterns")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1186,7 +1397,7 @@ elif nav_choice == "📊 Deep Analytics Dashboard":
         max_sankey = st.slider("Max transactions in Sankey visualization:", min_value=5, max_value=30, value=12, step=1)
         fig_sankey = build_sankey_flow(scored_df, max_txs=max_sankey)
         if fig_sankey:
-            st.plotly_chart(fig_sankey, width="stretch")
+            st.plotly_chart(fig_sankey, width="stretch", alt="Sankey capital flow diagram from sender wallets to receiver wallets")
         else:
             st.info("No address data available for Sankey flow.")
 
@@ -1205,7 +1416,7 @@ elif nav_choice == "🌐 Global Threat Intelligence":
         df_net = st.session_state.df_net
         fig_geo = build_geo_broadcast_map(scored_df, df_net)
         if fig_geo:
-            st.plotly_chart(fig_geo, width="stretch")
+            st.plotly_chart(fig_geo, width="stretch", alt="World map of Bitcoin P2P broadcast origin countries and average risk scores")
         else:
             st.info("No country-level broadcast data found. Upload P2P network observation logs to correlate broadcast origins.")
 
@@ -1215,7 +1426,7 @@ elif nav_choice == "🌐 Global Threat Intelligence":
     with st.container(border=True):
         st.markdown("#### 🏦 Wallet / Address Risk Profiles")
         st.caption("Aggregated risk profiles computed per wallet across all observed sender and receiver flows:")
-        wallet_df = build_wallet_risk_profiles(scored_df)
+        wallet_df = cached_wallet_profiles(scored_df)
 
         if not wallet_df.empty:
             g1, g2 = st.columns([2, 1], vertical_alignment="bottom")
@@ -1257,7 +1468,12 @@ elif nav_choice == "🌐 Global Threat Intelligence":
                 "total_btc": "{:.4f}",
             })
 
-            st.dataframe(styled, width="stretch")
+            st.dataframe(
+                styled,
+                width="stretch",
+                hide_index=True,
+                alt="Wallet risk profile leaderboard filtered by dominant forensic risk tier",
+            )
 
             # CSV Download
             csv_bytes = display_df.to_csv(index=False).encode("utf-8")
@@ -1285,11 +1501,17 @@ elif nav_choice == "🌐 Global Threat Intelligence":
                     "ASN": c["cluster_key"],
                     "Tx Count": c["tx_count"],
                     "Unique IPs": c["unique_ips"],
-                    "Total BTC": f"{c['total_amount_btc']:.4f}",
+                    "Total BTC": round(float(c["total_amount_btc"]), 4),
                     "Countries": ", ".join(c["countries"][:4]),
                 })
             asn_df = pd.DataFrame(asn_rows)
-            st.dataframe(asn_df, width="stretch")
+            st.dataframe(
+                asn_df,
+                width="stretch",
+                hide_index=True,
+                column_config={"Total BTC": st.column_config.NumberColumn("Total BTC", format="%.4f")},
+                alt="Transaction and IP concentration grouped by Autonomous System Number",
+            )
         else:
             st.info("No ASN clustering data available.")
 
@@ -1309,15 +1531,14 @@ elif nav_choice == "🔀 Transaction Comparison":
         col_a, col_b = st.columns(2)
         with col_a:
             with st.container(border=True):
-                st.markdown("#### 🔵 Transaction A")
-                default_a = all_tx_ids[0]
+                st.markdown("#### 🔵 Transaction A (Target)")
                 tx_id_a = st.selectbox("Select Transaction A:", all_tx_ids, index=0, key="cmp_tx_a", label_visibility="collapsed")
         with col_b:
             with st.container(border=True):
-                st.markdown("#### 🟠 Transaction B")
-                default_b = all_tx_ids[1] if all_tx_ids[1] != tx_id_a else all_tx_ids[2] if len(all_tx_ids) > 2 else all_tx_ids[0]
+                st.markdown("#### 🟠 Transaction B (Baseline / Reference)")
                 tx_b_options = [t for t in all_tx_ids if t != tx_id_a]
-                tx_id_b = st.selectbox("Select Transaction B:", tx_b_options, index=0, key="cmp_tx_b", label_visibility="collapsed")
+                # Default B to lowest-risk transaction for meaningful anomaly vs baseline comparison
+                tx_id_b = st.selectbox("Select Transaction B:", tx_b_options, index=len(tx_b_options) - 1, key="cmp_tx_b", label_visibility="collapsed")
 
         row_a = scored_df[scored_df["tx_id"] == tx_id_a].iloc[0]
         row_b = scored_df[scored_df["tx_id"] == tx_id_b].iloc[0]
@@ -1349,11 +1570,36 @@ elif nav_choice == "🔀 Transaction Comparison":
             st.caption("Normalized feature vectors illustrating mathematical difference between both transactions:")
             fig_cmp = build_comparison_chart(tx_id_a, tx_id_b, scored_df, results["X"], exp_dict)
             if fig_cmp:
-                st.plotly_chart(fig_cmp, width="stretch")
+                st.plotly_chart(
+                    fig_cmp,
+                    width="stretch",
+                    alt="Grouped bar chart comparing normalized forensic features between TX A and TX B",
+                )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         # Side-by-side narrative explanations
+        def _render_shap_driver_bars(exp_obj: dict):
+            for driver in exp_obj["top_drivers"][:6]:
+                feat = html_lib.escape(str(driver["label"]))
+                shap_val = float(driver["shap_impact"])
+                bar_pct = max(int(min(abs(shap_val) * 140, 100)), 4)
+                # For Isolation Forest, negative SHAP pushes decision_function lower -> ANOMALY
+                is_risk_driver = shap_val < 0
+                color = "#ef4444" if is_risk_driver else "#10b981"
+                dir_tag = "↑ Risk" if is_risk_driver else "↓ Baseline"
+                st.markdown(
+                    f"<div style='margin-bottom:8px'>"
+                    f"<div style='display:flex;justify-content:space-between;font-size:12px;'>"
+                    f"<span style='color:#cbd5e1;'>{feat}</span>"
+                    f"<span style='color:{color};font-family:JetBrains Mono;'>{shap_val:+.3f} ({dir_tag})</span>"
+                    f"</div>"
+                    f"<div style='background:#1e293b;width:100%;height:6px;border-radius:3px;margin-top:3px;'>"
+                    f"<div style='background:{color};width:{bar_pct}%;height:6px;border-radius:3px;'></div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
         n1, n2 = st.columns(2)
         exp_a = exp_dict.get(tx_id_a)
         exp_b = exp_dict.get(tx_id_b)
@@ -1363,20 +1609,11 @@ elif nav_choice == "🔀 Transaction Comparison":
                 st.markdown("##### 🔵 TX A Forensic Narrative")
                 if exp_a:
                     st.markdown(
-                        f"""<div class="forensic-narrative">{exp_a['summary_text']}</div>""",
+                        f"""<div class="forensic-narrative">{html_lib.escape(exp_a['summary_text'])}</div>""",
                         unsafe_allow_html=True,
                     )
                     with st.expander("Top SHAP Feature Drivers (TX A)", expanded=True):
-                        for driver in exp_a["top_drivers"][:6]:
-                            feat = driver["label"]
-                            shap_val = driver["shap_impact"]
-                            bar_pct = int(min(abs(shap_val) * 100, 100))
-                            color = "#ef4444" if shap_val > 0 else "#10b981"
-                            st.markdown(
-                                f"<div style='margin-bottom:6px'><span style='color:#94a3b8;font-size:12px'>{feat}</span>"
-                                f"<div style='background:{color};width:{bar_pct}%;height:6px;border-radius:3px;margin-top:2px'></div></div>",
-                                unsafe_allow_html=True,
-                            )
+                        _render_shap_driver_bars(exp_a)
                 else:
                     st.info("No SHAP explanation available for TX A.")
 
@@ -1385,20 +1622,11 @@ elif nav_choice == "🔀 Transaction Comparison":
                 st.markdown("##### 🟠 TX B Forensic Narrative")
                 if exp_b:
                     st.markdown(
-                        f"""<div class="forensic-narrative">{exp_b['summary_text']}</div>""",
+                        f"""<div class="forensic-narrative">{html_lib.escape(exp_b['summary_text'])}</div>""",
                         unsafe_allow_html=True,
                     )
                     with st.expander("Top SHAP Feature Drivers (TX B)", expanded=True):
-                        for driver in exp_b["top_drivers"][:6]:
-                            feat = driver["label"]
-                            shap_val = driver["shap_impact"]
-                            bar_pct = int(min(abs(shap_val) * 100, 100))
-                            color = "#ef4444" if shap_val > 0 else "#10b981"
-                            st.markdown(
-                                f"<div style='margin-bottom:6px'><span style='color:#94a3b8;font-size:12px'>{feat}</span>"
-                                f"<div style='background:{color};width:{bar_pct}%;height:6px;border-radius:3px;margin-top:2px'></div></div>",
-                                unsafe_allow_html=True,
-                            )
+                        _render_shap_driver_bars(exp_b)
                 else:
                     st.info("No SHAP explanation available for TX B.")
 
@@ -1414,5 +1642,10 @@ elif nav_choice == "🔀 Transaction Comparison":
                 va = row_a.get(col, "N/A")
                 vb = row_b.get(col, "N/A")
                 raw_rows.append({"Feature": col.replace("_", " ").title(), "TX A": str(va), "TX B": str(vb)})
-            st.dataframe(pd.DataFrame(raw_rows), width="stretch")
+            st.dataframe(
+                pd.DataFrame(raw_rows),
+                width="stretch",
+                hide_index=True,
+                alt="Side-by-side matrix of raw attributes for Transaction A and Transaction B",
+            )
 

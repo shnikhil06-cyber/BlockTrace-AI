@@ -30,6 +30,40 @@ def normalize_tx_id(val: Any) -> str:
     return s.lower()
 
 
+def build_prefix_remap(
+    candidate_ids: Any,
+    reference_ids: Any,
+    min_prefix_len: int = 8,
+) -> dict:
+    """
+    Maps truncated or prefix-matching normalized transaction IDs in `candidate_ids`
+    to full hashes in `reference_ids` using an O(1) prefix bucket index.
+    """
+    ref_set = {normalize_tx_id(r) for r in reference_ids}
+    ref_set.discard("")
+    cand_set = {normalize_tx_id(c) for c in candidate_ids}
+    cand_set.discard("")
+
+    unmatched = cand_set - ref_set
+    if not unmatched or not ref_set:
+        return {}
+
+    buckets: dict = {}
+    for tid in ref_set:
+        if len(tid) >= min_prefix_len:
+            buckets.setdefault(tid[:min_prefix_len], []).append(tid)
+
+    remap = {}
+    for nid in unmatched:
+        if len(nid) < min_prefix_len:
+            continue
+        for tid in buckets.get(nid[:min_prefix_len], ()):
+            if tid.startswith(nid) or nid.startswith(tid):
+                remap[nid] = tid
+                break
+    return remap
+
+
 def _load_dataframe(
     source: Union[str, BinaryIO, TextIO],
     file_type: str,
@@ -162,11 +196,16 @@ def parse_transactions(
         "total_btc": "amount_btc",
         "value": "amount_btc",
         "fee": "fee_btc",
+        "fee_sat": "fee_sat",
+        "fee_sats": "fee_sat",
+        "fee_satoshis": "fee_sat",
         "fee_rate": "fee_rate_sat_vb",
         "fee_rate_sat": "fee_rate_sat_vb",
         "vsize": "size_vbytes",
         "size": "size_vbytes",
         "vbytes": "size_vbytes",
+        "size_bytes": "size_vbytes",
+        "lock_time": "locktime",
         "rbf": "is_rbf",
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns and v not in df.columns})
@@ -205,15 +244,20 @@ def parse_transactions(
     else:
         df["amount_btc"] = 1.0
 
-    if "fee_btc" in df.columns:
-        df["fee_btc"] = pd.to_numeric(df["fee_btc"], errors="coerce").fillna(0.0001)
-    else:
-        df["fee_btc"] = 0.0001
-
     if "size_vbytes" in df.columns:
         df["size_vbytes"] = pd.to_numeric(df["size_vbytes"], errors="coerce").fillna(220).astype(int)
     else:
         df["size_vbytes"] = 220
+
+    if "fee_btc" in df.columns:
+        df["fee_btc"] = pd.to_numeric(df["fee_btc"], errors="coerce").fillna(0.0001)
+    elif "fee_sat" in df.columns:
+        df["fee_btc"] = pd.to_numeric(df["fee_sat"], errors="coerce").fillna(10000.0) / 1e8
+    elif "fee_rate_sat_vb" in df.columns:
+        rates = pd.to_numeric(df["fee_rate_sat_vb"], errors="coerce").fillna(25.0)
+        df["fee_btc"] = (rates * np.maximum(df["size_vbytes"], 1)) / 1e8
+    else:
+        df["fee_btc"] = 0.0001
 
     if "fee_rate_sat_vb" in df.columns:
         df["fee_rate_sat_vb"] = pd.to_numeric(df["fee_rate_sat_vb"], errors="coerce")

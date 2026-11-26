@@ -34,6 +34,11 @@ def test_origin_tracer():
     assert trace_res["origin_confidence_pct"] >= 50.0
     assert len(trace_res["timeline"]) > 0
 
+    # Also verify 0x-prefixed uppercase lookup matches cleanly
+    norm_res = tracer.trace_transaction_origin("0x" + target_tx.upper(), df_net)
+    assert norm_res["status"] == "ORIGIN_IDENTIFIED"
+    assert norm_res["origin_ip"] == trace_res["origin_ip"]
+
 
 def test_network_clusterer():
     df_tx, df_net = make_test_datasets(n_normal=30, seed=42)

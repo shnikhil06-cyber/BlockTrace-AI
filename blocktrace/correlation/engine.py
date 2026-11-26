@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
-from blocktrace.ingestion.parsers import normalize_tx_id
+from blocktrace.ingestion.parsers import normalize_tx_id, build_prefix_remap
 
 
 @dataclass
@@ -77,20 +77,9 @@ class CorrelationEngine:
         df_net_clean["tx_id"] = df_net_clean["tx_id"].apply(normalize_tx_id)
 
         # Smart prefix / truncated hash alignment if exact matching is incomplete
-        tx_set = set(df_tx_clean["tx_id"])
-        net_tx_set = set(df_net_clean["tx_id"])
-        if not net_tx_set.issubset(tx_set):
-            unmatched = net_tx_set - tx_set
-            tx_list = list(tx_set)
-            remap = {}
-            for nid in unmatched:
-                if len(nid) >= 8:
-                    for tid in tx_list:
-                        if tid.startswith(nid) or nid.startswith(tid):
-                            remap[nid] = tid
-                            break
-            if remap:
-                df_net_clean["tx_id"] = df_net_clean["tx_id"].replace(remap)
+        remap = build_prefix_remap(df_net_clean["tx_id"].unique(), df_tx_clean["tx_id"].unique())
+        if remap:
+            df_net_clean["tx_id"] = df_net_clean["tx_id"].replace(remap)
 
         # Group network logs by tx_id
         grouped = df_net_clean.groupby("tx_id")
@@ -123,14 +112,22 @@ class CorrelationEngine:
             unique_asns = sorted_group["asn"].unique().tolist()
             unique_countries = sorted_group["country"].unique().tolist()
 
+            earliest_ip = str(earliest_row.get("ip_address", ""))
             earliest_asn = str(earliest_row.get("asn", "")).upper()
             earliest_port = int(earliest_row.get("port", 8333))
-            is_tor = (earliest_asn in self.KNOWN_TOR_ASNS) or (earliest_port in (9050, 9150)) or ("tor" in str(earliest_row.get("user_agent", "")).lower())
+            is_tor = (
+                (earliest_asn in self.KNOWN_TOR_ASNS)
+                or (earliest_port in (9050, 9150))
+                or ("tor" in str(earliest_row.get("user_agent", "")).lower())
+                or earliest_ip.startswith(("185.220.", "199.249.230."))
+            )
             is_bp = earliest_asn in self.KNOWN_BULLETPROOF_ASNS
 
             obs_count = len(sorted_group)
             duration_sec = max((last_seen - first_seen).total_seconds(), 0.001)
             burst_velocity = obs_count / duration_sec if duration_sec > 0 else obs_count
+            mean_lat_raw = float(sorted_group["latency_ms"].mean())
+            mean_lat = mean_lat_raw if pd.notna(mean_lat_raw) else 0.0
 
             network_features.append({
                 "tx_id": tx_id,
@@ -139,8 +136,8 @@ class CorrelationEngine:
                 "first_seen_timestamp": first_seen,
                 "confirmation_delay_sec": round(conf_delay_sec, 2),
                 "propagation_spread_ms": round(propagation_spread_ms, 1),
-                "mean_latency_ms": round(float(sorted_group["latency_ms"].mean()), 2),
-                "earliest_ip": earliest_row["ip_address"],
+                "mean_latency_ms": round(mean_lat, 2),
+                "earliest_ip": earliest_ip,
                 "earliest_node_id": earliest_row["node_id"],
                 "earliest_asn": earliest_asn,
                 "earliest_country": str(earliest_row.get("country", "UNKNOWN")),

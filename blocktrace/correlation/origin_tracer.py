@@ -8,6 +8,8 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+from blocktrace.ingestion.parsers import normalize_tx_id, build_prefix_remap
+
 
 class OriginTracer:
     """
@@ -25,7 +27,16 @@ class OriginTracer:
         if df_net is None or df_net.empty:
             return {"status": "NO_NETWORK_DATA", "tx_id": tx_id}
 
-        logs = df_net[df_net["tx_id"] == tx_id].sort_values(by="timestamp_observed")
+        target_norm = normalize_tx_id(tx_id)
+        net_norm = df_net["tx_id"].apply(normalize_tx_id)
+        mask = net_norm == target_norm
+
+        if not mask.any() and len(target_norm) >= 8:
+            remap = build_prefix_remap(net_norm.unique(), [target_norm])
+            if remap:
+                mask = net_norm.isin(remap.keys())
+
+        logs = df_net[mask].sort_values(by="timestamp_observed")
 
         if logs.empty:
             return {"status": "TX_NOT_FOUND_IN_NETWORK_LOGS", "tx_id": tx_id}
