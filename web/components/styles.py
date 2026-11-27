@@ -1,5 +1,6 @@
 """
 Custom CSS and Visual Polish for BlockTrace-AI Cyber Forensics UI.
+Provides an elite dark-mode cybersecurity command center visual aesthetic.
 """
 
 def get_custom_css() -> str:
@@ -23,16 +24,16 @@ def get_custom_css() -> str:
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(17, 24, 39, 0.95) 100%);
-            border: 1px solid rgba(56, 189, 248, 0.3);
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(17, 24, 39, 0.98) 100%);
+            border: 1px solid rgba(56, 189, 248, 0.35);
             border-radius: 14px;
-            padding: 18px 26px;
+            padding: 20px 28px;
             margin-bottom: 24px;
-            box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.6), 0 0 16px -2px rgba(56, 189, 248, 0.15);
-            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.7), 0 0 20px -2px rgba(56, 189, 248, 0.2);
+            backdrop-filter: blur(14px);
         }
         .hero-title {
-            font-size: 1.6rem;
+            font-size: 1.65rem;
             font-weight: 800;
             color: #f8fafc;
             margin: 0;
@@ -42,7 +43,7 @@ def get_custom_css() -> str:
             letter-spacing: -0.02em;
         }
         .hero-subtitle {
-            font-size: 0.84rem;
+            font-size: 0.85rem;
             color: #94a3b8;
             margin-top: 5px;
             font-weight: 400;
@@ -51,6 +52,7 @@ def get_custom_css() -> str:
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
         }
 
         /* Cyber Pulse Status Indicator */
@@ -59,11 +61,11 @@ def get_custom_css() -> str:
             align-items: center;
             gap: 6px;
             font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 700;
             color: #10b981;
             background: rgba(16, 185, 129, 0.12);
             border: 1px solid rgba(16, 185, 129, 0.4);
-            padding: 3px 10px;
+            padding: 4px 12px;
             border-radius: 9999px;
             letter-spacing: 0.04em;
         }
@@ -96,7 +98,7 @@ def get_custom_css() -> str:
         .metric-card:hover {
             border-color: #0284c7;
             transform: translateY(-2px);
-            box-shadow: 0 8px 24px -4px rgba(2, 132, 199, 0.28);
+            box-shadow: 0 8px 24px -4px rgba(2, 132, 199, 0.3);
         }
         .metric-card::before {
             content: "";
@@ -106,7 +108,55 @@ def get_custom_css() -> str:
             right: 0;
             height: 2px;
             background: linear-gradient(90deg, transparent, #38bdf8, transparent);
-            opacity: 0.5;
+            opacity: 0.7;
+        }
+        .metric-card-critical {
+            background: linear-gradient(145deg, rgba(30, 15, 20, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.45);
+            box-shadow: 0 4px 18px -2px rgba(239, 68, 68, 0.25);
+        }
+        .metric-card-critical::before {
+            background: linear-gradient(90deg, transparent, #ef4444, transparent);
+            opacity: 0.9;
+        }
+        .metric-card-critical:hover {
+            border-color: #ef4444;
+            box-shadow: 0 8px 24px -4px rgba(239, 68, 68, 0.4);
+        }
+        .metric-card-warning {
+            background: linear-gradient(145deg, rgba(35, 24, 15, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.45);
+            box-shadow: 0 4px 18px -2px rgba(245, 158, 11, 0.25);
+        }
+        .metric-card-warning::before {
+            background: linear-gradient(90deg, transparent, #f59e0b, transparent);
+            opacity: 0.9;
+        }
+        .metric-card-warning:hover {
+            border-color: #f59e0b;
+            box-shadow: 0 8px 24px -4px rgba(245, 158, 11, 0.4);
+        }
+        .metric-card-purple {
+            background: linear-gradient(145deg, rgba(28, 18, 45, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            border: 1px solid rgba(168, 85, 247, 0.45);
+            box-shadow: 0 4px 18px -2px rgba(168, 85, 247, 0.25);
+        }
+        .metric-card-purple::before {
+            background: linear-gradient(90deg, transparent, #a855f7, transparent);
+            opacity: 0.9;
+        }
+        .metric-card-purple:hover {
+            border-color: #a855f7;
+            box-shadow: 0 8px 24px -4px rgba(168, 85, 247, 0.4);
+        }
+        .metric-card-emerald {
+            background: linear-gradient(145deg, rgba(15, 35, 28, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.45);
+            box-shadow: 0 4px 18px -2px rgba(16, 185, 129, 0.25);
+        }
+        .metric-card-emerald::before {
+            background: linear-gradient(90deg, transparent, #10b981, transparent);
+            opacity: 0.9;
         }
         .metric-label {
             font-size: 0.72rem;
@@ -130,6 +180,124 @@ def get_custom_css() -> str:
             display: flex;
             align-items: center;
             gap: 4px;
+        }
+
+        /* Sidebar Tactical Navigation Card Overrides */
+        div[data-testid="stRadio"] > div {
+            gap: 6px;
+        }
+        div[data-testid="stRadio"] label {
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.6) 0%, rgba(30, 41, 59, 0.5) 100%);
+            border: 1px solid rgba(56, 189, 248, 0.12);
+            border-radius: 9px;
+            padding: 9px 12px;
+            margin-bottom: 3px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        }
+        div[data-testid="stRadio"] label:hover {
+            background: rgba(56, 189, 248, 0.12);
+            border-color: rgba(56, 189, 248, 0.5);
+            transform: translateX(3px);
+            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.18);
+        }
+        div[data-testid="stRadio"] label[data-checked="true"],
+        div[data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(135deg, rgba(2, 132, 199, 0.28) 0%, rgba(14, 165, 233, 0.16) 100%) !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.3) !important;
+        }
+        div[data-testid="stRadio"] label[data-checked="true"] p,
+        div[data-testid="stRadio"] label:has(input:checked) p {
+            color: #38bdf8 !important;
+            font-weight: 700 !important;
+        }
+
+        /* Tactical Buttons Styling */
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+            border: 1px solid #38bdf8 !important;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4) !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.02em !important;
+            transition: all 0.2s ease !important;
+            border-radius: 8px !important;
+        }
+        button[kind="primary"]:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 22px rgba(56, 189, 248, 0.55) !important;
+        }
+        button[kind="secondary"] {
+            background: rgba(15, 23, 42, 0.85) !important;
+            border: 1px solid #334155 !important;
+            transition: all 0.2s ease !important;
+            border-radius: 8px !important;
+        }
+        button[kind="secondary"]:hover {
+            border-color: #38bdf8 !important;
+            background: rgba(30, 41, 59, 0.95) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        /* Styled Tabs with Neon Accents */
+        button[data-baseweb="tab"] {
+            font-weight: 600 !important;
+            color: #94a3b8 !important;
+            transition: all 0.2s ease !important;
+            border-radius: 6px 6px 0 0 !important;
+            padding: 8px 16px !important;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            color: #38bdf8 !important;
+            border-bottom: 2px solid #38bdf8 !important;
+            background: rgba(56, 189, 248, 0.08) !important;
+        }
+
+        /* Launchpad Empty State Cards */
+        .launchpad-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin: 18px 0;
+        }
+        .launchpad-card {
+            background: linear-gradient(135deg, #0b1120 0%, #0f172a 100%);
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.25s ease;
+            position: relative;
+        }
+        .launchpad-card:hover {
+            border-color: #38bdf8;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px -4px rgba(56, 189, 248, 0.22);
+        }
+        .launchpad-step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            font-weight: 800;
+            font-size: 0.88rem;
+            margin-bottom: 12px;
+        }
+        .launchpad-card-title {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #f1f5f9;
+            margin-bottom: 6px;
+        }
+        .launchpad-card-desc {
+            font-size: 0.82rem;
+            color: #94a3b8;
+            line-height: 1.5;
         }
 
         /* Badges & Tags */

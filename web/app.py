@@ -252,6 +252,9 @@ st.markdown(
                 <span class="status-dot"></span> AIR-GAP ACTIVE
             </div>
             <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:#38bdf8; background:#0f172a; padding:5px 12px; border-radius:8px; border:1px solid #1e293b;">
+                TARGET: {contamination_slider * 100:.0f}% ANOMALY
+            </span>
+            <span style="font-family:'JetBrains Mono'; font-size:0.75rem; color:#38bdf8; background:#0f172a; padding:5px 12px; border-radius:8px; border:1px solid #1e293b;">
                 CASE: {html_lib.escape(st.session_state.case_manager.case_id)}
             </span>
         </div>
@@ -263,28 +266,40 @@ st.markdown(
 
 def render_empty_dataset_notice():
     with st.container(border=True):
-        st.markdown("### 📥 No Forensic Dataset Loaded")
+        st.markdown("### 📥 Forensic Evidence Ingestion Launchpad")
         st.markdown(
             "BlockTrace-AI runs entirely on local, air-gapped forensic data with zero cloud telemetry leakage. "
-            "To begin your investigation, upload your evidence files or load the test dataset below:"
+            "Ingest your forensic evidence or activate the pre-packaged 1,000-record attack scenario:"
         )
-        ec1, ec2 = st.columns(2)
-        with ec1:
-            st.markdown(
-                """
-                **1. Bitcoin Blockchain Records** *(Mandatory)*<br>
-                Upload transactions CSV or JSON containing transaction hashes (`tx_id`), values, fees, and addresses.
-                """,
-                unsafe_allow_html=True,
-            )
-        with ec2:
-            st.markdown(
-                """
-                **2. P2P Network Telemetry** *(Optional)*<br>
-                Upload observation logs with peer IP addresses, propagation timings, ASNs, and broadcast events.
-                """,
-                unsafe_allow_html=True,
-            )
+
+        st.markdown(
+            """
+            <div class="launchpad-grid">
+                <div class="launchpad-card">
+                    <div class="launchpad-step-num">1</div>
+                    <div class="launchpad-card-title">Ingest Evidence</div>
+                    <div class="launchpad-card-desc">
+                        Load Bitcoin transactions (CSV/JSON) with amounts, fees, and addresses, plus P2P network telemetry logs.
+                    </div>
+                </div>
+                <div class="launchpad-card">
+                    <div class="launchpad-step-num">2</div>
+                    <div class="launchpad-card-title">Correlate &amp; ML Detect</div>
+                    <div class="launchpad-card-desc">
+                        Cross-correlate on-chain TXIDs with P2P broadcast timings and run Isolation Forest anomaly detection with SHAP explainability.
+                    </div>
+                </div>
+                <div class="launchpad-card">
+                    <div class="launchpad-step-num">3</div>
+                    <div class="launchpad-card-title">Origin Trace &amp; Export</div>
+                    <div class="launchpad-card-desc">
+                        Unmask initial broadcast IP/Tor nodes using Dijkstra propagation path analysis and export cryptographically signed court-ready dossiers.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         sample_tx = os.path.join(PROJECT_ROOT, "test_data", "transactions_1000.csv")
         sample_net = os.path.join(PROJECT_ROOT, "test_data", "network_logs_1000.csv")
@@ -363,9 +378,9 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
     with c2:
         st.markdown(
             f"""
-            <div class="metric-card">
+            <div class="metric-card metric-card-emerald">
                 <div class="metric-label">Network Correlated</div>
-                <div class="metric-value">{summary.correlation_rate_pct:.1f}%</div>
+                <div class="metric-value" style="color:#34d399;">{summary.correlation_rate_pct:.1f}%</div>
                 <div class="metric-sub">{summary.matched_txs} of {summary.total_txs} matched</div>
             </div>
             """,
@@ -374,9 +389,9 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
     with c3:
         st.markdown(
             f"""
-            <div class="metric-card">
+            <div class="metric-card metric-card-critical">
                 <div class="metric-label">Critical Alerts</div>
-                <div class="metric-value" style="color:#ef4444;">{crit_count}</div>
+                <div class="metric-value" style="color:#f87171;">{crit_count}</div>
                 <div class="metric-sub">Score ≥ 80.0 / 100</div>
             </div>
             """,
@@ -385,9 +400,9 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
     with c4:
         st.markdown(
             f"""
-            <div class="metric-card">
+            <div class="metric-card metric-card-warning">
                 <div class="metric-label">High-Risk BTC Volume</div>
-                <div class="metric-value" style="color:#f59e0b;">{susp_vol:.2f} ₿</div>
+                <div class="metric-value" style="color:#fbbf24;">{susp_vol:.2f} ₿</div>
                 <div class="metric-sub">Flagged UTXO principal</div>
             </div>
             """,
@@ -396,9 +411,9 @@ if nav_choice == "🛰️ Telemetry & Mission Control":
     with c5:
         st.markdown(
             f"""
-            <div class="metric-card">
+            <div class="metric-card metric-card-purple">
                 <div class="metric-label">Tor / Proxy Relays</div>
-                <div class="metric-value" style="color:#ec4899;">{summary.tor_proxy_broadcasts}</div>
+                <div class="metric-value" style="color:#c084fc;">{summary.tor_proxy_broadcasts}</div>
                 <div class="metric-sub">{summary.bulletproof_broadcasts} bulletproof ASNs</div>
             </div>
             """,
